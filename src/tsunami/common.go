@@ -1,4 +1,4 @@
-package feiliu
+package tsunami
 
 import (
 	"bufio"
@@ -11,6 +11,16 @@ import (
 	"strings"
 	"time"
 )
+
+const DEFAULT_SECRET = "kitten"
+const TS_TCP_PORT = 46224 /* default TCP port of the remote server        */
+const TS_UDP_PORT = 46224 /* default UDP port of the client / 47221       */
+
+const TS_BLOCK_ORIGINAL = 'O'       /* blocktype "original block" */
+const TS_BLOCK_TERMINATE = 'X'      /* blocktype "end transmission" */
+const TS_BLOCK_RETRANSMISSION = 'R' /* blocktype "retransmitted block" */
+
+const TS_DIRLIST_HACK_CMD = "!#DIR??" /* "file name" sent by the client to request a list of the shared files */
 
 /* retransmission request */
 type Retransmission struct {

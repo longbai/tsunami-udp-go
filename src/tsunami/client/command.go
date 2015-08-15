@@ -10,16 +10,6 @@ import (
 	"tsunami"
 )
 
-const DEFAULT_SECRET = "kitten"
-const TS_TCP_PORT = 46224 /* default TCP port of the remote server        */
-const TS_UDP_PORT = 46224 /* default UDP port of the client / 47221       */
-
-const TS_BLOCK_ORIGINAL = 'O'       /* blocktype "original block" */
-const TS_BLOCK_TERMINATE = 'X'      /* blocktype "end transmission" */
-const TS_BLOCK_RETRANSMISSION = 'R' /* blocktype "retransmitted block" */
-
-const TS_DIRLIST_HACK_CMD = "!#DIR??" /* "file name" sent by the client to request a list of the shared files */
-
 /*------------------------------------------------------------------------
  * int Command_close(Command_t *Command, ttp_session_t *session)
  *
@@ -79,7 +69,7 @@ func CommandConnect(parameter *Parameter, args []string) (session *Session, err 
 		return nil, err
 	}
 
-	secret := DEFAULT_SECRET
+	secret := tsunami.DEFAULT_SECRET
 	if parameter.passphrase != "" {
 		secret = parameter.passphrase
 	}
@@ -111,7 +101,7 @@ func CommandDir(session *Session) error {
 	if session == nil || session.connection == nil {
 		return errors.New("Not connected to a Tsunami server")
 	}
-	data := []byte(fmt.Sprintf("%v\n", TS_DIRLIST_HACK_CMD))
+	data := []byte(fmt.Sprintf("%v\n", tsunami.TS_DIRLIST_HACK_CMD))
 	session.connection.Write(data)
 	result := make([]byte, 1)
 	_, err := session.connection.Read(result)
@@ -122,7 +112,7 @@ func CommandDir(session *Session) error {
 		return errors.New("Server does no support listing of shared files")
 	}
 
-	str, err := feiliu.ReadLine(session.connection, 2048)
+	str, err := tsunami.ReadLine(session.connection, 2048)
 	if err != nil {
 		return err
 	}
@@ -137,9 +127,9 @@ func CommandDir(session *Session) error {
 
 	fmt.Fprintln(os.Stderr, "Remote file list:")
 	for i := 0; i < int(numOfFile); i++ {
-		str, _ = feiliu.ReadLine(session.connection, 2048)
+		str, _ = tsunami.ReadLine(session.connection, 2048)
 		fmt.Fprintf(os.Stderr, "%v) %v\t", i+1, str)
-		str, _ = feiliu.ReadLine(session.connection, 2048)
+		str, _ = tsunami.ReadLine(session.connection, 2048)
 		fmt.Fprintf(os.Stderr, "%v bytes\n", str)
 	}
 	fmt.Fprintln(os.Stderr, "")
@@ -784,10 +774,10 @@ func CommandSet(parameter *Parameter, args []string) error {
 			x, _ := strconv.ParseFloat(value, 64)
 			parameter.errorRate = uint32(x * 1000.0)
 		case "slowdown":
-			x, y := feiliu.ParseFraction(value)
+			x, y := tsunami.ParseFraction(value)
 			parameter.slowerNum, parameter.slowerDen = uint16(x), uint16(y)
 		case "speedup":
-			x, y := feiliu.ParseFraction(value)
+			x, y := tsunami.ParseFraction(value)
 			parameter.fasterNum, parameter.fasterDen = uint16(x), uint16(y)
 		case "history":
 			x, _ := strconv.ParseUint(value, 10, 32)

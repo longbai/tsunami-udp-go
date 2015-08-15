@@ -167,7 +167,7 @@ func (s *Session) ttp_authenticate(secret string) error {
 	}
 
 	/* prepare the proof of the shared secret and destroy the password */
-	digest := feiliu.PrepareProof(random, []byte(secret))
+	digest := tsunami.PrepareProof(random, []byte(secret))
 
 	/* send the response to the server */
 	count, e = s.connection.Write(digest[:])
@@ -402,7 +402,7 @@ func (s *Session) got_block(blocknr uint32) int {
  * bottom of the array.
  *------------------------------------------------------------------------*/
 func (s *Session) ttp_repeat_retransmit() error {
-	var retransmission [MAX_RETRANSMISSION_BUFFER]feiliu.Retransmission
+	var retransmission [MAX_RETRANSMISSION_BUFFER]tsunami.Retransmission
 
 	s.tr.stats.thisRetransmits = 0
 	var count uint32
@@ -438,7 +438,7 @@ func (s *Session) ttp_repeat_retransmit() error {
 		retransmission[0].RequestType = REQUEST_RESTART
 		retransmission[0].Block = block
 
-		_, err := s.connection.Write(feiliu.Retransmissions(retransmission[:1]).Bytes())
+		_, err := s.connection.Write(tsunami.Retransmissions(retransmission[:1]).Bytes())
 		if err != nil {
 			return err
 		}
@@ -469,7 +469,7 @@ func (s *Session) ttp_repeat_retransmit() error {
 
 		/* send out the requests */
 		if count > 0 {
-			_, err := s.connection.Write(feiliu.Retransmissions(retransmission[:count]).Bytes())
+			_, err := s.connection.Write(tsunami.Retransmissions(retransmission[:count]).Bytes())
 			if err != nil {
 				return err
 			}
@@ -565,11 +565,11 @@ func (s *Session) ttp_request_retransmit(block uint32) error {
  * requested, not that we successfully halted.
  *------------------------------------------------------------------------*/
 func (s *Session) ttp_request_stop() error {
-	var retransmission []feiliu.Retransmission = []feiliu.Retransmission{feiliu.Retransmission{0, 0, 0}}
+	var retransmission []tsunami.Retransmission = []tsunami.Retransmission{tsunami.Retransmission{0, 0, 0}}
 	retransmission[0].RequestType = REQUEST_STOP
 
 	/* send out the request */
-	_, err := s.connection.Write(feiliu.Retransmissions(retransmission).Bytes())
+	_, err := s.connection.Write(tsunami.Retransmissions(retransmission).Bytes())
 	if err != nil {
 		return err
 	}
@@ -600,7 +600,7 @@ func (s *Session) ttp_update_stats() error {
 	// double            total_retransmits_fraction;
 	// double            ringfill_fraction;
 	// statistics_t     *stats = &(session->transfer.stats);
-	retransmission := make([]feiliu.Retransmission, 1)
+	retransmission := make([]tsunami.Retransmission, 1)
 	// int               status;
 	// static u_int32_t  iteration = 0;
 	// static char       stats_line[128];
@@ -614,8 +614,8 @@ func (s *Session) ttp_update_stats() error {
 	// u_giga := 1024 * 1024 * 1024
 
 	/* find the total time elapsed */
-	delta := feiliu.Get_usec_since(stats.thisTime)
-	temp := feiliu.Get_usec_since(stats.startTime)
+	delta := tsunami.Get_usec_since(stats.thisTime)
+	temp := tsunami.Get_usec_since(stats.startTime)
 	// delta_total := temp
 	// milliseconds := (temp % 1000000) / 1000
 	temp /= 1000000
@@ -635,7 +635,7 @@ func (s *Session) ttp_update_stats() error {
 	// data_this_goodpt := float64(s.param.blockSize) * float64(stats.thisFlowOriginals)
 
 	/* get the current UDP receive error count reported by the operating system */
-	stats.thisUdpErrors = feiliu.Get_udp_in_errors()
+	stats.thisUdpErrors = tsunami.Get_udp_in_errors()
 
 	/* precalculate some fractions */
 	retransmits_fraction := float64(stats.thisRetransmits) / (1.0 + float64(stats.thisRetransmits+stats.totalBlocks-stats.thisBlocks))
@@ -660,7 +660,7 @@ func (s *Session) ttp_update_stats() error {
 	/* send the current error rate information to the server */
 	retransmission[0].RequestType = REQUEST_ERROR_RATE
 	retransmission[0].ErrorRate = uint32(s.tr.stats.errorRate)
-	_, err := s.connection.Write(feiliu.Retransmissions(retransmission).Bytes())
+	_, err := s.connection.Write(tsunami.Retransmissions(retransmission).Bytes())
 	if err != nil {
 		return err
 	}

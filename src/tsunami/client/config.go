@@ -1,5 +1,9 @@
 package client
 
+import (
+	"tsunami"
+)
+
 /*------------------------------------------------------------------------
  * Global constants.
  *------------------------------------------------------------------------*/
@@ -7,27 +11,27 @@ package client
 const SCREEN_MODE = 0 /* screen-based output mode                     */
 const LINE_MODE = 1   /* line-based (vmstat-like) output mode         */
 
-const DEFAULT_BLOCK_SIZE = 1024         /* default size of a single file block          */
-const DEFAULT_TABLE_SIZE = 4096         /* initial size of the retransmission table     */
-const DEFAULT_SERVER_NAME = "localhost" /* default name of the remote server            */
-const DEFAULT_SERVER_PORT = TS_TCP_PORT /* default TCP port of the remote server        */
-const DEFAULT_CLIENT_PORT = TS_UDP_PORT /* default UDP port of the client               */
-const DEFAULT_UDP_BUFFER = 20000000     /* default size of the UDP receive buffer       */
-const DEFAULT_VERBOSE_YN = true         /* the default verbosity setting                */
-const DEFAULT_TRANSCRIPT_YN = false     /* the default transcript setting               */
-const DEFAULT_IPV6_YN = false           /* the default IPv6 setting                     */
-const DEFAULT_OUTPUT_MODE = LINE_MODE   /* the default output mode (SCREEN or LINE)     */
-const DEFAULT_RATE_ADJUST = false       /* the default for remembering achieved rate    */
-const DEFAULT_TARGET_RATE = 650000000   /* the default target rate (in bps)             */
-const DEFAULT_ERROR_RATE = 7500         /* the default threshhold error rate (% x 1000) */
-const DEFAULT_SLOWER_NUM = 25           /* default numerator in the slowdown factor     */
-const DEFAULT_SLOWER_DEN = 24           /* default denominator in the slowdown factor   */
-const DEFAULT_FASTER_NUM = 5            /* default numerator in the speedup factor      */
-const DEFAULT_FASTER_DEN = 6            /* default denominator in the speedup factor    */
-const DEFAULT_HISTORY = 25              /* default percentage of history in rates       */
-const DEFAULT_NO_RETRANSMIT = false     /* on default use retransmission                */
-const DEFAULT_LOSSLESS = true           /* default to lossless transfer                 */
-const DEFAULT_LOSSWINDOW_MS = 1000      /* default time window (msec) for semi-lossless */
+const DEFAULT_BLOCK_SIZE = 1024                 /* default size of a single file block          */
+const DEFAULT_TABLE_SIZE = 4096                 /* initial size of the retransmission table     */
+const DEFAULT_SERVER_NAME = "localhost"         /* default name of the remote server            */
+const DEFAULT_SERVER_PORT = tsunami.TS_TCP_PORT /* default TCP port of the remote server        */
+const DEFAULT_CLIENT_PORT = tsunami.TS_UDP_PORT /* default UDP port of the client               */
+const DEFAULT_UDP_BUFFER = 20000000             /* default size of the UDP receive buffer       */
+const DEFAULT_VERBOSE_YN = true                 /* the default verbosity setting                */
+const DEFAULT_TRANSCRIPT_YN = false             /* the default transcript setting               */
+const DEFAULT_IPV6_YN = false                   /* the default IPv6 setting                     */
+const DEFAULT_OUTPUT_MODE = LINE_MODE           /* the default output mode (SCREEN or LINE)     */
+const DEFAULT_RATE_ADJUST = false               /* the default for remembering achieved rate    */
+const DEFAULT_TARGET_RATE = 650000000           /* the default target rate (in bps)             */
+const DEFAULT_ERROR_RATE = 7500                 /* the default threshhold error rate (% x 1000) */
+const DEFAULT_SLOWER_NUM = 25                   /* default numerator in the slowdown factor     */
+const DEFAULT_SLOWER_DEN = 24                   /* default denominator in the slowdown factor   */
+const DEFAULT_FASTER_NUM = 5                    /* default numerator in the speedup factor      */
+const DEFAULT_FASTER_DEN = 6                    /* default denominator in the speedup factor    */
+const DEFAULT_HISTORY = 25                      /* default percentage of history in rates       */
+const DEFAULT_NO_RETRANSMIT = false             /* on default use retransmission                */
+const DEFAULT_LOSSLESS = true                   /* default to lossless transfer                 */
+const DEFAULT_LOSSWINDOW_MS = 1000              /* default time window (msec) for semi-lossless */
 
 const DEFAULT_BLOCKDUMP = false /* on default do not write bitmap dump to file  */
 
