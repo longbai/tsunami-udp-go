@@ -11,9 +11,10 @@ import (
 const SCREEN_MODE = 0 /* screen-based output mode                     */
 const LINE_MODE = 1   /* line-based (vmstat-like) output mode         */
 
-const DEFAULT_BLOCK_SIZE = 1024                 /* default size of a single file block          */
-const DEFAULT_TABLE_SIZE = 4096                 /* initial size of the retransmission table     */
-const DEFAULT_SERVER_NAME = "localhost"         /* default name of the remote server            */
+const DEFAULT_BLOCK_SIZE = 1024         /* default size of a single file block          */
+const DEFAULT_TABLE_SIZE = 4096         /* initial size of the retransmission table     */
+const DEFAULT_SERVER_NAME = "localhost" /* default name of the remote server            */
+const DEFAULT_SECRET = tsunami.DEFAULT_SECRET
 const DEFAULT_SERVER_PORT = tsunami.TS_TCP_PORT /* default TCP port of the remote server        */
 const DEFAULT_CLIENT_PORT = tsunami.TS_UDP_PORT /* default UDP port of the client               */
 const DEFAULT_UDP_BUFFER = 20000000             /* default size of the UDP receive buffer       */
@@ -37,58 +38,29 @@ const DEFAULT_BLOCKDUMP = false /* on default do not write bitmap dump to file  
 
 const MAX_COMMAND_LENGTH = 1024 /* maximum length of a single command           */
 
-/* Tsunami transfer protocol parameters */
-// typedef struct {
-//     char               *server_name;              /* the name of the host running tsunamid       */
-//     u_int16_t           server_port;              /* the TCP port on which the server listens    */
-//     u_int16_t           client_port;              /* the UDP port on which the client receives   */
-//     u_int32_t           udp_buffer;               /* the size of the UDP receive buffer in bytes */
-//     u_char              verbose_yn;               /* 1 for verbose mode, 0 for quiet             */
-//     u_char              transcript_yn;            /* 1 for transcripts on, 0 for no transcript   */
-//     u_char              ipv6_yn;                  /* 1 for IPv6, 0 for IPv4                      */
-//     u_char              output_mode;              /* either SCREEN_MODE or LINE_MODE             */
-//     u_int32_t           block_size;               /* the size of each block (in bytes)           */
-//     u_int32_t           target_rate;              /* the transfer rate that we're targetting     */
-//     u_char              rate_adjust;              /* 1 for adjusting target to achieved rate     */
-//     u_int32_t           error_rate;               /* the threshhold error rate (in % x 1000)     */
-//     u_int16_t           slower_num;               /* the numerator of the increase-IPD factor    */
-//     u_int16_t           slower_den;               /* the denominator of the increase-IPD factor  */
-//     u_int16_t           faster_num;               /* the numerator of the decrease-IPD factor    */
-//     u_int16_t           faster_den;               /* the denominator of the decrease-IPD factor  */
-//     u_int16_t           history;                  /* percentage of history to keep in rates      */
-//     u_char              lossless;                 /* 1 for lossless, 0 for data rate priority    */
-//     u_int32_t           losswindow_ms;            /* data rate priority: time window for re-tx's */
-//     u_char              blockdump;                /* 1 to write received block bitmap to a file  */
-//     char                *passphrase;              /* the passphrase to use for authentication    */
-//     char                *ringbuf;                 /* Pointer to ring buffer start                */
-// } ttp_parameter_t;
-
 type Parameter struct {
-	serverName string
-	serverPort uint16
-	clientPort uint16
-	udpBuffer  uint32
-
-	verbose    bool
-	transcript bool
-	ipv6       bool
-	outputMode uint32
-	blockSize  uint32
-
-	targetRate uint32
-	rateAdjust bool
-	errorRate  uint32
-
-	slowerNum       uint16
-	slowerDen       uint16
-	fasterNum       uint16
-	fasterDen       uint16
-	history         uint16
-	lossless        bool
-	losswindow_ms   uint32
-	blockDump       bool
-	passphrase      string
-	ringBufferIndex uint32
+	serverName      string /* the name of the host running tsunamid       */
+	serverPort      uint16 /* the TCP port on which the server listens    */
+	clientPort      uint16 /* the UDP port on which the client receives   */
+	udpBuffer       uint32 /* the size of the UDP receive buffer in bytes */
+	verbose         bool   /* 1 for verbose mode, 0 for quiet             */
+	transcript      bool   /* 1 for transcripts on, 0 for no transcript   */
+	ipv6            bool   /* 1 for IPv6, 0 for IPv4                      */
+	outputMode      uint32 /* either SCREEN_MODE or LINE_MODE             */
+	blockSize       uint32 /* the size of each block (in bytes)           */
+	targetRate      uint32 /* the transfer rate that we're targetting     */
+	rateAdjust      bool   /* 1 for adjusting target to achieved rate     */
+	errorRate       uint32 /* the threshhold error rate (in % x 1000)     */
+	slowerNum       uint16 /* the numerator of the increase-IPD factor    */
+	slowerDen       uint16 /* the denominator of the increase-IPD factor  */
+	fasterNum       uint16 /* the numerator of the decrease-IPD factor    */
+	fasterDen       uint16 /* the denominator of the decrease-IPD factor  */
+	history         uint16 /* percentage of history to keep in rates      */
+	lossless        bool   /* 1 for lossless, 0 for data rate priority    */
+	losswindow_ms   uint32 /* data rate priority: time window for re-tx's */
+	blockDump       bool   /* 1 to write received block bitmap to a file  */
+	passphrase      string /* the passphrase to use for authentication    */
+	ringBufferIndex uint32 /* Pointer to ring buffer start                */
 }
 
 func NewParameter() *Parameter {
@@ -114,5 +86,6 @@ func NewParameter() *Parameter {
 	parameter.lossless = DEFAULT_LOSSLESS
 	parameter.losswindow_ms = DEFAULT_LOSSWINDOW_MS
 	parameter.blockDump = DEFAULT_BLOCKDUMP
+	parameter.passphrase = DEFAULT_SECRET
 	return &parameter
 }

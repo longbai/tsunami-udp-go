@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"tsunami"
 	"tsunami/client"
 )
 
@@ -51,7 +52,7 @@ func run(args []string, parameter *client.Parameter, session **client.Session) e
 }
 
 func main() {
-	fmt.Fprintf(os.Stderr, "Tsunami Go Client for protocol rev %X\nRevision: %v\n", client.PROTOCOL_REVISION, 0.1)
+	fmt.Fprintf(os.Stderr, "Tsunami Go Client for protocol rev %X\nRevision: %v\n", tsunami.PROTOCOL_REVISION, 0.1)
 	parameter := client.NewParameter()
 	var session *client.Session
 	flag.Parse()

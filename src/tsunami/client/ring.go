@@ -26,7 +26,33 @@ type ring_buffer struct {
 	count_reserved int        /* the number of slots reserved without data   */
 	mutex          sync.Mutex /* a mutex to guard the ring buffer            */
 	// pthread_cond_t      data_ready_cond;          /* condition variable to indicate data ready   */
-	data_ready int /* nonzero when data is ready, else 0          */
+	data_ready bool /* nonzero when data is ready, else 0          */
 	// pthread_cond_t      space_ready_cond;         /* condition variable to indicate space ready  */
-	space_ready int /* nonzero when space is available, else 0     */
+	space_ready bool /* nonzero when space is available, else 0     */
+}
+
+/*------------------------------------------------------------------------
+ * ring_buffer_t *ring_create(ttp_session_t *session);
+ *
+ * Creates the ring buffer data structure for a Tsunami transfer and
+ * returns a pointer to the new data structure.  Returns NULL if
+ * allocation and initialization failed.  The new ring buffer will hold
+ * ([6 + block_size] * MAX_BLOCKS_QUEUED datagrams.
+ *------------------------------------------------------------------------*/
+func ring_create(session *Session) *ring_buffer {
+	ring := new(ring_buffer)
+
+	ring.datagram_size = 6 + int(session.param.blockSize)
+	ring.datagrams = make([]byte, ring.datagram_size*MAX_BLOCKS_QUEUED)
+
+	ring.data_ready = false
+	ring.space_ready = true
+
+	/* initialize the indices */
+	ring.count_data = 0
+	ring.count_reserved = 0
+	ring.base_data = 0
+
+	/* and return the ring structure */
+	return ring
 }

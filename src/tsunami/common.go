@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+const PROTOCOL_REVISION = 0x20061025 // yyyymmdd
+
+const REQUEST_RETRANSMIT = 0
+const REQUEST_RESTART = 1
+const REQUEST_STOP = 2
+const REQUEST_ERROR_RATE = 3
+
 const DEFAULT_SECRET = "kitten"
 const TS_TCP_PORT = 46224 /* default TCP port of the remote server        */
 const TS_UDP_PORT = 46224 /* default UDP port of the client / 47221       */

@@ -14,14 +14,9 @@ import (
 	"tsunami"
 )
 
-const PROTOCOL_REVISION = 0x20061025
 const MAX_RETRANSMISSION_BUFFER = 2048
 
 const MAX_BLOCKS_QUEUED = 4096
-const REQUEST_RETRANSMIT = 0
-const REQUEST_RESTART = 1
-const REQUEST_STOP = 2
-const REQUEST_ERROR_RATE = 3
 
 /* statistical data */
 // typedef struct {
@@ -118,7 +113,7 @@ type transfer struct {
 	gaplessToBlock        uint32
 	retransmit            retransmit
 	stats                 statistics
-	ringBuffer            ring_buffer
+	ringBuffer            *ring_buffer
 	received              []byte
 	blocksLeft            uint32
 	restartPending        bool
@@ -129,7 +124,7 @@ type transfer struct {
 
 type Session struct {
 	param      Parameter
-	tr         transfer
+	tr         *transfer
 	address    net.IP
 	connection net.Conn
 }
@@ -206,7 +201,7 @@ func (s *Session) ttp_authenticate(secret string) error {
 func (s *Session) ttp_negotiate() error {
 	buf := make([]byte, 4)
 
-	binary.BigEndian.PutUint32(buf, PROTOCOL_REVISION)
+	binary.BigEndian.PutUint32(buf, tsunami.PROTOCOL_REVISION)
 
 	count, e := s.connection.Write(buf)
 	if e != nil {
@@ -226,7 +221,7 @@ func (s *Session) ttp_negotiate() error {
 	}
 
 	x := binary.BigEndian.Uint32(buf)
-	if x != PROTOCOL_REVISION {
+	if x != tsunami.PROTOCOL_REVISION {
 		return errors.New("Protocol negotiation failed")
 	}
 	return nil
@@ -422,7 +417,7 @@ func (s *Session) ttp_repeat_retransmit() error {
 			transmit.table[count] = block
 
 			/* insert retransmit request */
-			retransmission[count].RequestType = REQUEST_RETRANSMIT
+			retransmission[count].RequestType = tsunami.REQUEST_RETRANSMIT
 			retransmission[count].Block = block
 			count++
 		}
@@ -435,7 +430,7 @@ func (s *Session) ttp_repeat_retransmit() error {
 		if s.tr.blockCount > s.tr.gaplessToBlock+1 {
 			block = s.tr.gaplessToBlock + 1
 		}
-		retransmission[0].RequestType = REQUEST_RESTART
+		retransmission[0].RequestType = tsunami.REQUEST_RESTART
 		retransmission[0].Block = block
 
 		_, err := s.connection.Write(tsunami.Retransmissions(retransmission[:1]).Bytes())
@@ -566,7 +561,7 @@ func (s *Session) ttp_request_retransmit(block uint32) error {
  *------------------------------------------------------------------------*/
 func (s *Session) ttp_request_stop() error {
 	var retransmission []tsunami.Retransmission = []tsunami.Retransmission{tsunami.Retransmission{0, 0, 0}}
-	retransmission[0].RequestType = REQUEST_STOP
+	retransmission[0].RequestType = tsunami.REQUEST_STOP
 
 	/* send out the request */
 	_, err := s.connection.Write(tsunami.Retransmissions(retransmission).Bytes())
@@ -658,7 +653,7 @@ func (s *Session) ttp_update_stats() error {
 	stats.errorRate = fb*stats.errorRate + ff*500*100*(retransmits_fraction+ringfill_fraction)
 
 	/* send the current error rate information to the server */
-	retransmission[0].RequestType = REQUEST_ERROR_RATE
+	retransmission[0].RequestType = tsunami.REQUEST_ERROR_RATE
 	retransmission[0].ErrorRate = uint32(s.tr.stats.errorRate)
 	_, err := s.connection.Write(tsunami.Retransmissions(retransmission).Bytes())
 	if err != nil {
