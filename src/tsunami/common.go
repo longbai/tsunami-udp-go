@@ -22,6 +22,8 @@ const REQUEST_RESTART = 1
 const REQUEST_STOP = 2
 const REQUEST_ERROR_RATE = 3
 
+const MAX_BLOCK_SIZE = 65530 /* maximum size of a data block       */
+
 const DEFAULT_SECRET = "kitten"
 const TS_TCP_PORT = 46224 /* default TCP port of the remote server        */
 const TS_UDP_PORT = 46224 /* default UDP port of the client / 47221       */
@@ -39,6 +41,8 @@ type Retransmission struct {
 	ErrorRate   uint32 /* the current error rate (in % x 1000)      */
 }
 
+const SIZE_OF_RETRANSMISSION_T = 2 + 4 + 4
+
 type Retransmissions []Retransmission
 
 func (r Retransmissions) Bytes() []byte {
@@ -49,6 +53,27 @@ func (r Retransmissions) Bytes() []byte {
 		binary.Write(buf, binary.BigEndian, r[i].ErrorRate)
 	}
 	return buf.Bytes()
+}
+
+func NewRetransmission(b []byte) *Retransmission {
+	if len(b) != SIZE_OF_RETRANSMISSION_T {
+		return nil
+	}
+	r := Retransmission{}
+	buf := bytes.NewReader(b)
+	err := binary.Read(buf, binary.BigEndian, &r.RequestType)
+	if err != nil {
+		return nil
+	}
+	err = binary.Read(buf, binary.BigEndian, &r.Block)
+	if err != nil {
+		return nil
+	}
+	err = binary.Read(buf, binary.BigEndian, &r.ErrorRate)
+	if err != nil {
+		return nil
+	}
+	return &r
 }
 
 /*------------------------------------------------------------------------

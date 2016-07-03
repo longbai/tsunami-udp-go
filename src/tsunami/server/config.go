@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	opt "github.com/pborman/getopt"
@@ -136,10 +137,28 @@ func ProcessOptions() *Parameter {
 		}
 	}
 
-	if parameter.verbose {
-		fmt.Fprintln(os.Stderr, "Block size:", parameter.block_size)
-		fmt.Fprintln(os.Stderr, "Buffer size:", parameter.udp_buffer)
-		fmt.Fprintln(os.Stderr, "Port:", parameter.tcp_port)
-	}
+	parameter.VerboseArg("")
 	return parameter
+}
+
+func (param *Parameter) VerboseArg(prompt string) {
+	if !param.verbose {
+		return
+	}
+	if prompt != "" {
+		fmt.Fprintln(os.Stderr, prompt)
+	}
+
+	fmt.Fprintln(os.Stderr, "Block size:", param.block_size)
+	fmt.Fprintln(os.Stderr, "Buffer size:", param.udp_buffer)
+	fmt.Fprintln(os.Stderr, "Port:", param.tcp_port)
+}
+
+func (param *Parameter) FinishHook(file string) error {
+	if param.finishhook != "" {
+		fmt.Fprintln(os.Stderr, "Executing:", param.finishhook, file)
+		cmd := exec.Command(param.finishhook, file)
+		return cmd.Run()
+	}
+	return nil
 }

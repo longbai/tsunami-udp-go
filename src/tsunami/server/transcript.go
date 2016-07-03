@@ -9,7 +9,7 @@ import (
 	"tsunami"
 )
 
-func (s *Session) xsriptOpen() {
+func (s *Session) XsriptOpen() {
 	xfer := s.transfer
 	param := s.parameter
 
@@ -44,7 +44,7 @@ func (s *Session) xsriptOpen() {
 	f.Sync()
 }
 
-func (s *Session) xsriptClose(delta uint64) {
+func (s *Session) XsriptClose(delta uint64) {
 	xfer := s.transfer
 	param := s.parameter
 	f := xfer.transcript
@@ -58,15 +58,15 @@ func (s *Session) xsriptClose(delta uint64) {
 	f.Close()
 }
 
-func (s *Session) xsriptDataStart(t time.Time) {
+func (s *Session) XsriptDataStart(t time.Time) {
 	s.xsriptDataSnap("START", t)
 }
 
-func (s *Session) xsriptDataLog(logLine string) {
+func (s *Session) XsriptDataLog(logLine string) {
 	s.xsriptDataWrite(logLine)
 }
 
-func (s *Session) xsriptDataStop(t time.Time) {
+func (s *Session) XsriptDataStop(t time.Time) {
 	s.xsriptDataSnap("STOP", t)
 }
 
