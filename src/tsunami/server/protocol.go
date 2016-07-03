@@ -32,6 +32,7 @@ type Session struct {
 	client_fd  *net.TCPConn /* the connection to the remote client        */
 	session_id uint32       /* the ID of the server session, autonumber   */
 	last_block uint32
+	iteration  uint32
 }
 
 func NewSession(id uint32, conn *net.TCPConn, param *Parameter) *Session {
@@ -61,7 +62,6 @@ func NewSession(id uint32, conn *net.TCPConn, param *Parameter) *Session {
  *
  * Returns 0 on success and non-zero on failure.
  *------------------------------------------------------------------------*/
-var iteration = 0
 
 func (session *Session) AcceptRetransmit(retransmission tsunami.Retransmission, datagram []byte) error {
 	xfer := session.transfer
@@ -91,22 +91,18 @@ func (session *Session) AcceptRetransmit(retransmission tsunami.Retransmission, 
 			xfer.ipd_current = float64(param.ipd_time)
 		}
 
-		/* build the stats string */
-		s := fmt.Sprintln(retransmission.ErrorRate, float32(xfer.ipd_current), param.ipd_time, xfer.block,
+		s := fmt.Sprintf("%6u %3.2fus %5uus %7u %6.2f %3u\n",
+			retransmission.ErrorRate, float32(xfer.ipd_current), param.ipd_time, xfer.block,
 			100.0*xfer.block/param.block_count, session.session_id)
 
-		// print a status report
-		if (iteration % 23) == 0 {
-			fmt.Println(" erate     ipd  target   block   %%done srvNr")
+		if (session.iteration % 23) == 0 {
+			fmt.Fprintln(os.Stderr, " erate     ipd  target   block   done srvNr")
 		}
-		iteration += 1
-		fmt.Println(s)
+		session.iteration += 1
+		fmt.Fprintln(os.Stderr, s)
 
-		// /* print to the transcript if the user wants */
-		// if (param.transcript_yn)
-		//     xscript_data_log(session, stats_line);
+		session.XsriptDataLog(s)
 
-		/* if it's a restart request */
 	} else if request_type == tsunami.REQUEST_RESTART {
 
 		/* do range-checking first */
@@ -162,9 +158,6 @@ func (session *Session) AcceptRetransmit(retransmission tsunami.Retransmission, 
 func (session *Session) Authenticate() error {
 	secret := session.parameter.secret
 	random := make([]byte, 64) /* the buffer of random data               */
-	// u_char server_digest[16];  /* the MD5 message digest (for us)         */
-	// u_char client_digest[16];  /* the MD5 message digest (for the client) */
-	// int    i;
 
 	/* obtain the random data */
 	_, err := rand.Read(random)
@@ -705,7 +698,7 @@ func (session *Session) Transfer() {
 				fmt.Fprintln(os.Stderr, "Could not read block", xfer.block, err)
 				return
 			}
-			_, err = xfer.udp_fd.WriteTo(datagram, xfer.udp_address)
+			_, err = xfer.udp_fd.WriteTo(datagram[:6+param.block_size], xfer.udp_address)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Could not transmit block", xfer.block, err)
 				continue
