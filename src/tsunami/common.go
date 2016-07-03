@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 )
 
 const PROTOCOL_REVISION = 0x20061025 // yyyymmdd
+
+const TSUNAMI_CVS_BUILDNR = "v1.1 devel gitbuild 44"
 
 const REQUEST_RETRANSMIT = 0
 const REQUEST_RESTART = 1
@@ -142,4 +145,8 @@ func ParseFraction(fraction string) (numerator, denominator int64) {
 	numerator, _ = strconv.ParseInt(nums[0], 10, 64)
 	denominator, _ = strconv.ParseInt(nums[1], 10, 64)
 	return
+}
+
+func MakeTranscriptFileName(t time.Time, extension string) string {
+	return fmt.Sprintf("%s.%s", t.Format("2006-01-02-15-04-05"), "tsus")
 }

@@ -14,10 +14,10 @@ import (
 
 /* state of a transfer */
 type Transfer struct {
-	parameter *Parameter /* the TTP protocol parameters                */
-	filename  string     /* the path to the file                       */
-	file      *os.File   /* the open file that we're transmitting      */
-	// FILE               *transcript   /* the open transcript file for statistics    */
+	parameter   *Parameter   /* the TTP protocol parameters                */
+	filename    string       /* the path to the file                       */
+	file        *os.File     /* the open file that we're transmitting      */
+	transcript  *os.File     /* the open transcript file for statistics    */
 	udp_fd      *net.UDPConn /* the file descriptor of our UDP socket      */
 	udp_address *net.UDPAddr /* the destination for our file data          */
 	ipd_current float64      /* the inter-packet delay currently in usec   */
@@ -30,6 +30,7 @@ type Session struct {
 	transfer   Transfer     /* the current transfer in progress, if any   */
 	client_fd  *net.TCPConn /* the connection to the remote client        */
 	session_id uint32       /* the ID of the server session, autonumber   */
+	last_block uint32
 }
 
 /*------------------------------------------------------------------------
@@ -52,7 +53,7 @@ type Session struct {
  *------------------------------------------------------------------------*/
 var iteration = 0
 
-func ttp_accept_retransmit(session *Session, retransmission tsunami.Retransmission, datagram []byte) error {
+func (session *Session) ttp_accept_retransmit(retransmission tsunami.Retransmission, datagram []byte) error {
 	xfer := &session.transfer
 	param := session.parameter
 	// static int       iteration = 0;
@@ -113,7 +114,7 @@ func ttp_accept_retransmit(session *Session, retransmission tsunami.Retransmissi
 	} else if request_type == tsunami.REQUEST_RETRANSMIT {
 
 		/* build the retransmission */
-		err := build_datagram(session, retransmission.Block, tsunami.TS_BLOCK_RETRANSMISSION, datagram)
+		err := session.buildDatagram(retransmission.Block, tsunami.TS_BLOCK_RETRANSMISSION, datagram)
 		if err != nil {
 			return err
 		}
@@ -152,7 +153,7 @@ func ttp_accept_retransmit(session *Session, retransmission tsunami.Retransmissi
  *         result byte of 0.  Otherwise, it transmits a non-zero
  *         result byte.
  *------------------------------------------------------------------------*/
-func ttp_authenticate(session *Session, secret string) error {
+func (session *Session) ttp_authenticate(secret string) error {
 	random := make([]byte, 64) /* the buffer of random data               */
 	// u_char server_digest[16];  /* the MD5 message digest (for us)         */
 	// u_char client_digest[16];  /* the MD5 message digest (for the client) */
@@ -202,7 +203,7 @@ func ttp_authenticate(session *Session, secret string) error {
  *
  * Values are transmitted in network byte order.
  *------------------------------------------------------------------------*/
-func ttp_negotiate(session *Session) error {
+func (session *Session) ttp_negotiateerror() error {
 	buf := make([]byte, 4)
 	binary.BigEndian.PutUint32(buf, tsunami.PROTOCOL_REVISION)
 
@@ -237,7 +238,7 @@ func ttp_negotiate(session *Session) error {
  * with our pending transfer and receives the destination port number
  * from the client.  Returns 0 on success and non-zero on failure.
  *------------------------------------------------------------------------*/
-func ttp_open_port(session *Session) error {
+func (session *Session) ttp_open_port() error {
 	// struct sockaddr    *address;
 	// int                 status;
 	// u_int16_t           port;
@@ -263,6 +264,9 @@ func ttp_open_port(session *Session) error {
 	_, err := session.client_fd.Read(buf)
 	if err != nil {
 		return err
+	}
+	if address.String() == "" {
+		return nil
 	}
 	// if x, err := address.(*) {
 

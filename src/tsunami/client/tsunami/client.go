@@ -27,7 +27,7 @@ func run(args []string, parameter *client.Parameter, session **client.Session) e
 		if len(args) != 2 {
 			return errors.New("need get args")
 		}
-		return client.CommandGet(args[1], *session)
+		return client.CommandGet(args[1], "", *session)
 	case "dir":
 		return client.CommandDir(*session)
 	case "help":

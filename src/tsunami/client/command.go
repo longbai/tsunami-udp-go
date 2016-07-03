@@ -158,10 +158,10 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 	rexmit := &(xfer.retransmit)
 
 	var f_total uint64 = 1
-	var f_arrsize uint64 = 0
+	// var f_arrsize uint64 = 0
 	multimode := false
 
-	var wait_u_sec int64 = 1
+	// var wait_u_sec int64 = 1
 	var file_names []string
 
 	if remotePath == "*" {
@@ -179,6 +179,7 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 			return err
 		}
 		t2 := time.Now()
+		fmt.Println("elapsed", t1, t2)
 		file_count := make([]byte, 10)
 		_, err = session.connection.Read(file_count)
 		if err != nil {
@@ -187,10 +188,10 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 		_, err = session.connection.Write([]byte("got size"))
 
 		/* Calculate and convert RTT to u_sec, with +10% margin */
-		d := t2.Sub(t1).Nanoseconds()
-		wait_u_sec = (d + d/10) / 1000
+		// d := t2.Sub(t1).Nanoseconds()
+		// wait_u_sec = (d + d/10) / 1000
 
-		f_arrsize, _ = strconv.ParseUint(string(filearray_size), 10, 64)
+		// f_arrsize, _ = strconv.ParseUint(string(filearray_size), 10, 64)
 		f_total, _ = strconv.ParseUint(string(file_count), 10, 64)
 		if f_total <= 0 {
 			/* get the \x008 failure signal */
@@ -244,7 +245,7 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 
 		xfer.ringBuffer = ring_create(session)
 
-		local_datagram := make([]byte, 6+session.param.blockSize)
+		// local_datagram := make([]byte, 6+session.param.blockSize)
 
 		/* Finish initializing the retransmission object */
 		rexmit.tableSize = DEFAULT_TABLE_SIZE

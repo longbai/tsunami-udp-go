@@ -27,13 +27,12 @@ import (
  * six bytes longer than the block size for the transfer.  Returns 0 on
  * success and non-zero on failure.
  *------------------------------------------------------------------------*/
-var last_block uint32
 
-func build_datagram(session *Session, block_index uint32,
+func (session *Session) buildDatagram(block_index uint32,
 	block_type uint16, datagram []byte) error {
 
 	/* move the file pointer to the appropriate location */
-	if block_index != (last_block + 1) {
+	if block_index != (session.last_block + 1) {
 		_, err := session.transfer.file.Seek(int64(session.parameter.block_size*(block_index-1)), os.SEEK_SET)
 		if err != nil {
 			return err
@@ -50,7 +49,6 @@ func build_datagram(session *Session, block_index uint32,
 	binary.BigEndian.PutUint32(datagram, block_index)
 	binary.BigEndian.PutUint16(datagram[4:], block_type)
 
-	/* return success */
-	last_block = block_index
+	session.last_block = block_index
 	return nil
 }
