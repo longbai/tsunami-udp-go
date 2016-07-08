@@ -26,9 +26,18 @@ func Listen(param *Parameter) (net.Listener, error) {
 	return ln, nil
 }
 
-// func createUdpSocket(param *Parameter) (*net.UDPConn, error) {
-
-// }
+func createUdpSocket(param *Parameter, remoteAddr *net.UDPAddr) (*net.UDPConn, error) {
+	conn, err := net.DialUDP("udp", nil, remoteAddr)
+	if err != nil {
+		return nil, err
+	}
+	err = conn.SetWriteBuffer(int(param.udp_buffer))
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
 
 // int create_udp_socket(ttp_parameter_t *parameter)
 // {

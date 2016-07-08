@@ -239,24 +239,27 @@ func (session *Session) Negotiate() error {
  * from the client.  Returns 0 on success and non-zero on failure.
  *------------------------------------------------------------------------*/
 func (session *Session) OpenPort() error {
-	// struct sockaddr    *address;
-	// int                 status;
-	// u_int16_t           port;
-	// u_char              ipv6_yn = session->parameter->ipv6_yn;
-
 	/* create the address structure */
-	var address net.Addr
+	var udp_address net.UDPAddr
 	if session.parameter.client == "" {
-		address = session.client_fd.RemoteAddr()
+		address := session.client_fd.RemoteAddr()
+		addr := address.(*net.TCPAddr)
+		udp_address.IP = addr.IP
+		udp_address.Zone = addr.Zone
 	} else {
 		addr, err := net.ResolveIPAddr("ip", session.parameter.client)
 		if err != nil {
 			return err
 		}
-		address = addr
 		if addr.Network() == "ipv6" {
 			session.parameter.ipv6 = true
 		}
+		udp_address.IP = addr.IP
+		udp_address.Zone = addr.Zone
+	}
+
+	if udp_address.String() == "" {
+		return nil
 	}
 
 	/* read in the port number from the client */
@@ -265,33 +268,26 @@ func (session *Session) OpenPort() error {
 	if err != nil {
 		return err
 	}
-	if address.String() == "" {
-		return nil
+
+	x := binary.BigEndian.Uint16(buf)
+	udp_address.Port = int(x)
+
+	if session.parameter.verbose {
+		fmt.Fprintln(os.Stderr, "Sending to client port", x)
 	}
-	// if x, err := address.(*) {
 
-	// }
-
-	// if (ipv6_yn)
-	// ((struct sockaddr_in6 *) address)->sin6_port = port;
-	// else
-	// ((struct sockaddr_in *)  address)->sin_port  = port;
-
-	// /* print out the port number */
-	// if (session->parameter->verbose_yn)
-	// printf("Sending to client port %d\n", ntohs(port));
-
-	// /* open a new datagram socket */
-	// session->transfer.udp_fd = create_udp_socket(session->parameter);
-	// if (session->transfer.udp_fd < 0)
-	// return warn("Could not create UDP socket");
-
-	// session->transfer.udp_address = address;
+	fd, err := createUdpSocket(session.parameter, &udp_address)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not create UDP socket", err)
+		return err
+	}
+	session.transfer.udp_fd = fd
+	session.transfer.udp_address = &udp_address
 	return nil
 }
 
 /*------------------------------------------------------------------------
- * int ttp_open_transfer(ttp_session_t *session);
+ * int OpenTransfer(ttp_session_t *session);
  *
  * Tries to create a new TTP file request object for the given session
  * by reading the name of a requested file from the client.  If we are
