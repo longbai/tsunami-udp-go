@@ -12,3 +12,12 @@ func TestMakeTranscriptFileName(t *testing.T) {
 		t.Fatal("test failed", x)
 	}
 }
+
+func TestBZero(t *testing.T) {
+	x := make([]byte, 2)
+	x[1] = 1
+	BZero(x)
+	if x[1] != 0 || x[0] != 0 {
+		t.Fatal("test failed", x)
+	}
+}

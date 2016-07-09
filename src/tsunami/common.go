@@ -34,6 +34,8 @@ const TS_BLOCK_RETRANSMISSION = 'R' /* blocktype "retransmitted block" */
 
 const TS_DIRLIST_HACK_CMD = "!#DIR??" /* "file name" sent by the client to request a list of the shared files */
 
+const MAX_FILENAME_LENGTH = 1024
+
 /* retransmission request */
 type Retransmission struct {
 	RequestType uint16 /* the retransmission request type           */
@@ -174,4 +176,10 @@ func ParseFraction(fraction string) (numerator, denominator int64) {
 
 func MakeTranscriptFileName(t time.Time, extension string) string {
 	return fmt.Sprintf("%s.%s", t.Format("2006-01-02-15-04-05"), "tsus")
+}
+
+func BZero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
 }

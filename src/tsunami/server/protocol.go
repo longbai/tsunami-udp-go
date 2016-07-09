@@ -1,13 +1,15 @@
 package server
 
 import (
-	"errors"
-	"fmt"
-	// "io"
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"net"
 	"os"
+	"os/exec"
+	"strconv"
 	"time"
 
 	"tsunami"
@@ -40,8 +42,24 @@ func NewSession(id uint32, conn *net.TCPConn, param *Parameter) *Session {
 	session.transfer = &Transfer{}
 	session.session_id = id
 	session.client_fd = conn
-	session.parameter = param
+	p := *param
+	session.parameter = &p
 	return session
+}
+
+func (t *Transfer) close() {
+	if t.file != nil {
+		t.file.Close()
+		t.file = nil
+	}
+	if t.transcript != nil {
+		t.transcript.Close()
+		t.transcript = nil
+	}
+	if t.udp_fd != nil {
+		t.udp_fd.Close()
+		t.udp_fd = nil
+	}
 }
 
 /*------------------------------------------------------------------------
@@ -286,6 +304,153 @@ func (session *Session) OpenPort() error {
 	return nil
 }
 
+func (session *Session) listFiles() error {
+	/* The client requested listing of files and their sizes (dir command)
+	 * Send strings:   NNN \0   name1 \0 len1 \0     nameN \0 lenN \0
+	 */
+	p := session.parameter
+	total_files := session.parameter.total_files
+	buf := new(bytes.Buffer)
+	s := strconv.FormatInt(int64(total_files), 10)
+	buf.WriteString(s)
+	buf.WriteByte(0)
+	for i := 0; i < int(total_files); i++ {
+		buf.WriteString(p.file_names[i])
+		buf.WriteByte(0)
+		size := strconv.FormatUint(p.file_sizes[i], 10)
+		buf.WriteString(size)
+		buf.WriteByte(0)
+	}
+	session.client_fd.Write(buf.Bytes())
+	b := make([]byte, 1)
+	_, err := session.client_fd.Read(b)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read client list ack failed")
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "file list sent")
+	return nil
+}
+
+/* execute the provided program on server side to see what files
+ * should be gotten
+ */
+func (session *Session) executeHook() (string, error) {
+	param := session.parameter
+	fmt.Fprintln(os.Stderr, "Using allhook program:", param.allhook)
+	cmd := exec.Command(param.allhook)
+	data, err := cmd.Output()
+	if len(data) > 32768 {
+		data = data[:32768]
+	}
+	var l int
+	var count int64
+	if err == nil {
+		l = len(data)
+		var last int
+		for i, v := range data {
+			if v == '\n' {
+				fmt.Println(" ", string(data[last:i]))
+				count++
+			}
+			if v < ' ' {
+				data[i] = 0
+			}
+		}
+	}
+
+	b := make([]byte, 10)
+	buf := bytes.NewBuffer(b)
+
+	buf.WriteString(strconv.FormatInt(int64(l), 10))
+	session.client_fd.Write(b)
+
+	buf.Reset()
+	tsunami.BZero(b)
+	buf.WriteString(strconv.FormatInt(count, 10))
+	session.client_fd.Write(b)
+
+	buf.Reset()
+	tsunami.BZero(b)
+	message := b[:8]
+	_, err = session.client_fd.Read(message)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read hook response failed", err)
+		return "", err
+	}
+
+	fmt.Println("Client response:", string(message))
+
+	tsunami.BZero(b)
+	if count > 0 {
+		session.client_fd.Write(data)
+		_, err = session.client_fd.Read(message)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "read hook filelist response failed", err)
+			return "", err
+		}
+		fmt.Println("Sent file list, client response:", string(message))
+		s, err := tsunami.ReadLine(session.client_fd, tsunami.MAX_FILENAME_LENGTH)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Could not read filename from client", err)
+			return "", err
+		}
+		return s, nil
+	}
+	return "", nil
+}
+
+func (session *Session) sendMultipleFileNames() (string, error) {
+	/* A multiple file request - sent the file names first,
+	 * and next the client requests a download of each in turn (get * command)
+	 */
+	param := session.parameter
+	b := make([]byte, 10)
+	buf := bytes.NewBuffer(b)
+
+	buf.WriteString(strconv.FormatInt(int64(param.file_name_size), 10))
+	session.client_fd.Write(b)
+	buf.Reset()
+	tsunami.BZero(b)
+
+	buf.WriteString(strconv.FormatInt(int64(param.total_files), 10))
+	session.client_fd.Write(b)
+	buf.Reset()
+	tsunami.BZero(b)
+
+	fmt.Println("\nSent multi-GET filename count and array size to client")
+	readBuff := make([]byte, 8)
+	n, err := session.client_fd.Read(readBuff)
+	if err != nil {
+		return "", err
+	}
+	fmt.Println("Client response: ", string(readBuff[:n]))
+
+	buf2 := new(bytes.Buffer)
+
+	for i := 0; i < int(param.total_files); i++ {
+		buf2.WriteString(param.file_names[i])
+		buf2.WriteByte(0)
+
+	}
+	session.client_fd.Write(buf2.Bytes())
+
+	tsunami.BZero(readBuff)
+	n, err = session.client_fd.Read(readBuff)
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Println("Sent file list, client response:", string(readBuff[:n]))
+
+	fname, err := tsunami.ReadLine(session.client_fd, tsunami.MAX_FILENAME_LENGTH)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not read filename from client")
+		return "", err
+	}
+	return fname, nil
+}
+
 /*------------------------------------------------------------------------
  * int OpenTransfer(ttp_session_t *session);
  *
@@ -299,322 +464,171 @@ func (session *Session) OpenPort() error {
  * (because the file can be read) and a non-zero result byte otherwise.
  *------------------------------------------------------------------------*/
 func (session *Session) OpenTransfer() error {
+	if session.transfer != nil {
+		session.transfer.close()
+	}
+	session.transfer = &Transfer{}
+
+	/* read in the requested filename */
+	filename, err := tsunami.ReadLine(session.client_fd, tsunami.MAX_FILENAME_LENGTH)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not read filename from client")
+		return err
+	}
+
+	if filename == tsunami.TS_DIRLIST_HACK_CMD {
+		return session.listFiles()
+	}
+	param := session.parameter
+	if filename == "*" {
+		if param.allhook != "" {
+			filename, err = session.executeHook()
+
+		} else {
+			filename, err = session.sendMultipleFileNames()
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	if param.verbose {
+		fmt.Println("Request for file:", filename)
+	}
+
+	f, err := os.OpenFile(filename, os.O_RDONLY, 0)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "File", filename, "does not exist or cannot be read", err)
+		_, err2 := session.client_fd.Write([]byte{8})
+		if err2 != nil {
+			fmt.Fprintln(os.Stderr, "Could not signal request failure to client")
+		}
+		return err
+	}
+
+	session.transfer.file = f
+
+	/* begin round trip time estimation */
+	tStart := time.Now()
+
+	/* try to signal success to the client */
+	_, err = session.client_fd.Write([]byte{0})
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not signal request approval to client", err)
+		return err
+	}
+
+	fourBytes := make([]byte, 4)
+	/* read in the block size, target bitrate, and error rate */
+	_, err = session.client_fd.Read(fourBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read block size", err)
+		return err
+	}
+	param.block_size = binary.BigEndian.Uint32(fourBytes)
+
+	_, err = session.client_fd.Read(fourBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read target bitrate", err)
+		return err
+	}
+	param.target_rate = binary.BigEndian.Uint32(fourBytes)
+
+	_, err = session.client_fd.Read(fourBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read error rate", err)
+		return err
+	}
+	param.error_rate = binary.BigEndian.Uint32(fourBytes)
+
+	/* end round trip time estimation */
+	tEnd := time.Now()
+
+	/* read in the slowdown and speedup factors */
+	twoBytes := fourBytes[:2]
+	_, err = session.client_fd.Read(twoBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read slowdown numerator", err)
+		return err
+	}
+	param.slower_num = binary.BigEndian.Uint16(twoBytes)
+
+	_, err = session.client_fd.Read(twoBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read slowdown denominator", err)
+		return err
+	}
+	param.slower_den = binary.BigEndian.Uint16(twoBytes)
+
+	_, err = session.client_fd.Read(twoBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read speedup numerator", err)
+		return err
+	}
+	param.faster_num = binary.BigEndian.Uint16(twoBytes)
+
+	_, err = session.client_fd.Read(twoBytes)
+	if err != nil {
+		fmt.Sprintln(os.Stderr, "Could not read speedup denominator", err)
+		return err
+	}
+	param.faster_den = binary.BigEndian.Uint16(twoBytes)
+
+	/* try to find the file statistics */
+	info, _ := session.transfer.file.Stat()
+	param.file_size = uint64(info.Size())
+	var last uint64 = 1
+	if param.file_size%uint64(param.block_size) == 0 {
+		last = 0
+	}
+	param.block_count = uint32((param.file_size / uint64(param.block_size)) + last)
+	param.epoch = time.Now()
+
+	/* reply with the length, block size, number of blocks, and run epoch */
+	eightBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(eightBytes, param.file_size)
+	_, err = session.client_fd.Write(eightBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not submit file size", err)
+		return err
+	}
+
+	binary.BigEndian.PutUint32(fourBytes, param.block_size)
+	_, err = session.client_fd.Write(fourBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not submit block size", err)
+		return err
+	}
+
+	binary.BigEndian.PutUint32(fourBytes, param.block_count)
+	_, err = session.client_fd.Write(fourBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not submit block count", err)
+		return err
+	}
+
+	epoch := param.epoch.Unix()
+
+	binary.BigEndian.PutUint32(fourBytes, uint32(epoch))
+	_, err = session.client_fd.Write(fourBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not submit run epoch", err)
+		return err
+	}
+
+	/*calculate and convert RTT to u_sec*/
+	param.wait_u_sec = uint32(tEnd.Sub(tStart).Nanoseconds() / 1000)
+	/*add a 10% safety margin*/
+	param.wait_u_sec = param.wait_u_sec + uint32(float32(param.wait_u_sec)*0.1)
+
+	/* and store the inter-packet delay */
+	param.ipd_time = uint32(1000000 * 8 * int64(param.block_size) / int64(param.target_rate))
+	session.transfer.ipd_current = float64(param.ipd_time * 3)
+
+	session.XsriptOpen()
+
 	return nil
 }
-
-// int ttp_open_transfer(ttp_session_t *session)
-// {
-//     char             filename[MAX_FILENAME_LENGTH];  /* the name of the file to transfer     */
-//     u_int64_t        file_size;                      /* network-order version of file size   */
-//     u_int32_t        block_size;                     /* network-order version of block size  */
-//     u_int32_t        block_count;                    /* network-order version of block count */
-//     time_t           epoch;
-//     int              status;
-//     ttp_transfer_t  *xfer  = &session->transfer;
-//     ttp_parameter_t *param =  session->parameter;
-
-//     char       size[10];
-//     char       file_no[10];
-//     char       message[20];
-//     u_int16_t  i;
-//     struct     timeval ping_s, ping_e;
-
-//     /* clear out the transfer data */
-//     memset(xfer, 0, sizeof(*xfer));
-
-//     /* read in the requested filename */
-//     status = read_line(session->client_fd, filename, MAX_FILENAME_LENGTH);
-//     if (status < 0)
-//         error("Could not read filename from client");
-//     filename[MAX_FILENAME_LENGTH - 1] = '\0';
-
-//     if(!strcmp(filename, TS_DIRLIST_HACK_CMD)) {
-
-//        /* The client requested listing of files and their sizes (dir command)
-//         * Send strings:   NNN \0   name1 \0 len1 \0     nameN \0 lenN \0
-//         */
-//         snprintf(file_no, sizeof(file_no), "%u", param->total_files);
-//         full_write(session->client_fd, file_no, strlen(file_no)+1);
-//         for(i=0; i<param->total_files; i++) {
-//             full_write(session->client_fd, param->file_names[i], strlen(param->file_names[i])+1);
-//             snprintf(message, sizeof(message), "%Lu", (ull_t)(param->file_sizes[i]));
-//             full_write(session->client_fd, message, strlen(message)+1);
-//         }
-//         full_read(session->client_fd, message, 1);
-//         return warn("File list sent!");
-
-//     } else if(!strcmp(filename,"*")) {
-
-//         if(param->allhook != 0)
-//         {
-//            /* execute the provided program on server side to see what files
-//             * should be gotten
-//             */
-// 			const int MaxFileListLength = 32768;
-// 			char fileList[MaxFileListLength];
-// 			const char *fl;
-// 			int nFile = 0;
-// 			int length = 0;
-// 			int l;
-//             FILE *p;
-
-//             fprintf(stderr, "Using allhook program: %s\n", param->allhook);
-//             p = popen((char *)(param->allhook), "r");
-//             if(p)
-//             {
-
-//                 memset(fileList, 0, MaxFileListLength);
-
-//                 while(1)
-//                 {
-//                     if(fgets(message, sizeof(message), p) == 0)
-//                         break;
-
-//                     /* get lenght of string and strip non printable chars */
-//                     for(l = 0; message[l] >= ' '; ++l) {}
-//                     message[l] = 0;
-
-//                     fprintf(stdout, "  '%s'\n", message);
-
-//                     if(l + length >= MaxFileListLength)
-//                         break;
-
-//                     strncpy(fileList + length, message, l);
-//                     length += l + 1;
-//                     ++nFile;
-//                 }
-//             }
-//             pclose(p);
-
-//             memset(size, 0, sizeof(size));
-//             snprintf(size, sizeof(size), "%u", length);
-//             full_write(session->client_fd, size, 10);
-
-//             memset(file_no, 0, sizeof(file_no));
-//             snprintf(file_no, sizeof(file_no), "%u", nFile);
-//             full_write(session->client_fd, file_no, 10);
-
-//             printf("\nSent multi-GET filename count and array size to client\n");
-//             memset(message, 0, sizeof(message));
-//             full_read(session->client_fd, message, 8);
-//             printf("Client response: %s\n", message);
-
-//             fl = fileList;
-//             if(nFile > 0)
-//             {
-//                 for(i=0; i<nFile; i++)
-//                 {
-//                     l = strlen(fl);
-//                     full_write(session->client_fd, fl, l+1);
-//                     fl += l+1;
-//                 }
-
-//                 memset(message, 0, sizeof(message));
-//                 full_read(session->client_fd, message, 8);
-//                 printf("Sent file list, client response: %s\n", message);
-
-//                 status = read_line(session->client_fd, filename, MAX_FILENAME_LENGTH);
-
-//                 if (status < 0)
-//                     error("Could not read filename from client");
-//             }
-
-//         } else {
-
-//            /* A multiple file request - sent the file names first,
-//             * and next the client requests a download of each in turn (get * command)
-//             */
-//             memset(size, 0, sizeof(size));
-//             snprintf(size, sizeof(size), "%u", param->file_name_size);
-//             full_write(session->client_fd, size, 10);
-
-//             memset(file_no, 0, sizeof(file_no));
-//             snprintf(file_no, sizeof(file_no), "%u", param->total_files);
-//             full_write(session->client_fd, file_no, 10);
-
-//             printf("\nSent multi-GET filename count and array size to client\n");
-//             memset(message, 0, sizeof(message));
-//             full_read(session->client_fd, message, 8);
-//             printf("Client response: %s\n", message);
-
-//             for(i=0; i<param->total_files; i++)
-//                 full_write(session->client_fd, param->file_names[i], strlen(param->file_names[i])+1);
-
-//             memset(message, 0, sizeof(message));
-//             full_read(session->client_fd, message, 8);
-//             printf("Sent file list, client response: %s\n", message);
-
-//             status = read_line(session->client_fd, filename, MAX_FILENAME_LENGTH);
-
-//             if (status < 0)
-//                 error("Could not read filename from client");
-//         }
-//     }
-
-//     /* store the filename in the transfer object */
-//     xfer->filename = strdup(filename);
-//     if (xfer->filename == NULL)
-//         return warn("Memory allocation error");
-
-//     /* make a note of the request */
-//     if (param->verbose_yn)
-//         printf("Request for file: '%s'\n", filename);
-
-//     #ifndef VSIB_REALTIME
-
-//     /* try to open the file for reading */
-//     xfer->file = fopen(filename, "r");
-//     if (xfer->file == NULL) {
-//         sprintf(g_error, "File '%s' does not exist or cannot be read", filename);
-//         /* signal failure to the client */
-//         status = full_write(session->client_fd, "\x008", 1);
-//         if (status < 0)
-//             warn("Could not signal request failure to client");
-//         return warn(g_error);
-//     }
-
-//     #else
-
-//     /* get starting time (UTC) and detect whether local disk copy is wanted */
-//     if (strrchr(filename,'/') == NULL) {
-//         ef = parse_evn_filename(filename);          /* attempt to parse */
-//         param->fileout = 0;
-//     } else {
-//         ef = parse_evn_filename(strrchr(filename, '/')+1);       /* attempt to parse */
-//         param->fileout = 1;
-//     }
-//     if (!ef->valid) {
-//         fprintf(stderr, "Warning: EVN filename parsing failed, '%s' not following EVN File Naming Convention?\n", filename);
-//     }
-
-//     /* get time multiplexing info from EVN filename (currently these are all unused) */
-//     if (get_aux_entry("sl",ef->auxinfo, ef->nr_auxinfo) == 0)
-//       param->totalslots= 1;          /* default to 1 */
-//     else
-//       sscanf(get_aux_entry("sl",ef->auxinfo, ef->nr_auxinfo), "%d", &(param->totalslots));
-
-//     if (get_aux_entry("sn",ef->auxinfo, ef->nr_auxinfo) == 0)
-//       param->slotnumber= 1;          /* default to 1 */
-//     else
-//       sscanf(get_aux_entry("sn",ef->auxinfo, ef->nr_auxinfo), "%d", &param->slotnumber);
-
-//     if (get_aux_entry("sr",ef->auxinfo, ef->nr_auxinfo) == 0)
-//       param->samplerate= 512;          /* default to 512 Msamples/s */
-//     else
-//       sscanf(get_aux_entry("sr",ef->auxinfo, ef->nr_auxinfo), "%d", &param->samplerate);
-
-//     /* try to open the vsib for reading */
-//     xfer->vsib = fopen("/dev/vsib", "r");
-//     if (xfer->vsib == NULL) {
-//         sprintf(g_error, "VSIB board does not exist in /dev/vsib or it cannot be read");
-//         status = full_write(session->client_fd, "\002", 1);
-//         if (status < 0) {
-//             warn("Could not signal request failure to client");
-//         }
-//         return warn(g_error);
-//     }
-
-//     /* try to open the local disk copy file for writing */
-//     if (param->fileout) {
-//         xfer->file = fopen(filename, "wb");
-//         if (xfer->file == NULL) {
-//             sprintf(g_error, "Could not open local file '%s' for writing", filename);
-//             status = full_write(session->client_fd, "\x010", 1);
-//             if (status < 0) {
-//                 warn("Could not signal request failure to client");
-//             }
-//             fclose(xfer->vsib);
-//             return warn(g_error);
-//         }
-//     }
-
-//     /* Start half a second before full UTC seconds change. If EVN filename date/time parse failed, start immediately. */
-//     if (!(NULL == ef->data_start_time_ascii || ef->data_start_time <= 1.0)) {
-//         u_int64_t timedelta_usec;
-//         starttime = ef->data_start_time - 0.5;
-
-//         assert( gettimeofday(&d, NULL) == 0 );
-//         timedelta_usec = (unsigned long)((starttime - (double)d.tv_sec)* 1000000.0) - (double)d.tv_usec;
-//         fprintf(stderr, "Sleeping until specified time (%s) for %Lu usec...\n", ef->data_start_time_ascii, (ull_t)timedelta_usec);
-//         usleep_that_works(timedelta_usec);
-//     }
-
-//     /* Check if the client is still connected after the long(?) wait */
-//     //if(recv(session->client_fd, &status, 1, MSG_PEEK)<0) {
-//     //    // connection has terminated, exit
-//     //    fclose(xfer->vsib);
-//     //    return warn("The client disconnected while server was sleeping.");
-//     //}
-
-//     /* start at next 1PPS pulse */
-//     start_vsib(session);
-
-//     #endif // end of VSIB_REALTIME section
-
-//     /* begin round trip time estimation */
-//     gettimeofday(&ping_s,NULL);
-
-//     /* try to signal success to the client */
-//     status = full_write(session->client_fd, "\000", 1);
-//     if (status < 0)
-//         return warn("Could not signal request approval to client");
-
-//     /* read in the block size, target bitrate, and error rate */
-//     if (full_read(session->client_fd, &param->block_size,  4) < 0) return warn("Could not read block size");            param->block_size  = ntohl(param->block_size);
-//     if (full_read(session->client_fd, &param->target_rate, 4) < 0) return warn("Could not read target bitrate");        param->target_rate = ntohl(param->target_rate);
-//     if (full_read(session->client_fd, &param->error_rate,  4) < 0) return warn("Could not read error rate");            param->error_rate  = ntohl(param->error_rate);
-
-//     /* end round trip time estimation */
-//     gettimeofday(&ping_e,NULL);
-
-//     /* read in the slowdown and speedup factors */
-//     if (full_read(session->client_fd, &param->slower_num,  2) < 0) return warn("Could not read slowdown numerator");    param->slower_num  = ntohs(param->slower_num);
-//     if (full_read(session->client_fd, &param->slower_den,  2) < 0) return warn("Could not read slowdown denominator");  param->slower_den  = ntohs(param->slower_den);
-//     if (full_read(session->client_fd, &param->faster_num,  2) < 0) return warn("Could not read speedup numerator");     param->faster_num  = ntohs(param->faster_num);
-//     if (full_read(session->client_fd, &param->faster_den,  2) < 0) return warn("Could not read speedup denominator");   param->faster_den  = ntohs(param->faster_den);
-
-//     #ifndef VSIB_REALTIME
-//     /* try to find the file statistics */
-//     fseeko(xfer->file, 0, SEEK_END);
-//     param->file_size   = ftello(xfer->file);
-//     fseeko(xfer->file, 0, SEEK_SET);
-//     #else
-//     /* get length of recording in bytes from filename */
-//     if (get_aux_entry("flen", ef->auxinfo, ef->nr_auxinfo) != 0) {
-//         sscanf(get_aux_entry("flen", ef->auxinfo, ef->nr_auxinfo), "%" SCNu64, (u_int64_t*) &(param->file_size));
-//     } else if (get_aux_entry("dl", ef->auxinfo, ef->nr_auxinfo) != 0) {
-//         sscanf(get_aux_entry("dl", ef->auxinfo, ef->nr_auxinfo), "%" SCNu64, (u_int64_t*) &(param->file_size));
-//     } else {
-//         param->file_size = 60LL * 512000000LL * 4LL / 8; /* default to amount of bytes equivalent to 4 minutes at 512Mbps */
-//     }
-//     fprintf(stderr, "Realtime file length in bytes: %Lu\n", (ull_t)param->file_size);
-//     #endif
-
-//     param->block_count = (param->file_size / param->block_size) + ((param->file_size % param->block_size) != 0);
-//     param->epoch       = time(NULL);
-
-//     /* reply with the length, block size, number of blocks, and run epoch */
-//     file_size   = htonll(param->file_size);    if (full_write(session->client_fd, &file_size,   8) < 0) return warn("Could not submit file size");
-//     block_size  = htonl (param->block_size);   if (full_write(session->client_fd, &block_size,  4) < 0) return warn("Could not submit block size");
-//     block_count = htonl (param->block_count);  if (full_write(session->client_fd, &block_count, 4) < 0) return warn("Could not submit block count");
-//     epoch       = htonl (param->epoch);        if (full_write(session->client_fd, &epoch,       4) < 0) return warn("Could not submit run epoch");
-
-//     /*calculate and convert RTT to u_sec*/
-//     session->parameter->wait_u_sec=(ping_e.tv_sec - ping_s.tv_sec)*1000000+(ping_e.tv_usec-ping_s.tv_usec);
-//     /*add a 10% safety margin*/
-//     session->parameter->wait_u_sec = session->parameter->wait_u_sec + ((int)(session->parameter->wait_u_sec* 0.1));
-
-//     /* and store the inter-packet delay */
-//     param->ipd_time   = (u_int32_t) ((1000000LL * 8 * param->block_size) / param->target_rate);
-//     xfer->ipd_current = param->ipd_time * 3;
-
-//     /* if we're doing a transcript */
-//     if (param->transcript_yn)
-//         xscript_open(session);
-
-//     /* we succeeded! */
-//     return 0;
-// }
 
 func (session *Session) Transfer() {
 	datagram := make([]byte, tsunami.MAX_BLOCK_SIZE+6)
