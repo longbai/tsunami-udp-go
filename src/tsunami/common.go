@@ -36,6 +36,8 @@ const TS_DIRLIST_HACK_CMD = "!#DIR??" /* "file name" sent by the client to reque
 
 const MAX_FILENAME_LENGTH = 1024
 
+const UPDATE_PERIOD = 350000
+
 /* retransmission request */
 type Retransmission struct {
 	RequestType uint16 /* the retransmission request type           */

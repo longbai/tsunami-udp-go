@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	// "sync"
 	"time"
 
 	"tsunami"
@@ -120,6 +119,7 @@ type transfer struct {
 	restartLastIndex      uint32
 	restartWireClearIndex uint32
 	onWireEstimate        uint32
+	transcript            *os.File
 }
 
 type Session struct {
