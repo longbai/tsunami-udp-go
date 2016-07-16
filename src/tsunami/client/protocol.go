@@ -18,119 +18,71 @@ const MAX_RETRANSMISSION_BUFFER = 2048
 const MAX_BLOCKS_QUEUED = 4096
 
 /* statistical data */
-// typedef struct {
-//     struct timeval      start_time;               /* when we started timing the transfer         */
-//     struct timeval      stop_time;                /* when we finished timing the transfer        */
-//     struct timeval      this_time;                /* when we began this data collection period   */
-//     u_int32_t           this_blocks;              /* the number of blocks in this interval       */
-//     u_int32_t           this_retransmits;         /* the number of retransmits in this interval  */
-//     u_int32_t           total_blocks;             /* the total number of blocks transmitted      */
-//     u_int32_t           total_retransmits;        /* the total number of retransmission requests */
-//     u_int32_t           total_recvd_retransmits;  /* the total number of received retransmits    */
-//     u_int32_t           total_lost;               /* the final number of data blocks lost        */
-//     u_int32_t           this_flow_originals;      /* the number of original blocks this interval */
-//     u_int32_t           this_flow_retransmitteds; /* the number of re-tx'ed blocks this interval */
-//     double              this_transmit_rate;       /* the unfiltered transmission rate (bps)      */
-//     double              transmit_rate;            /* the smoothed transmission rate (bps)        */
-//     double              this_retransmit_rate;     /* the unfiltered retransmission rate (bps)    */
-//     double              error_rate;               /* the smoothed error rate (% x 1000)          */
-//     u_int64_t           start_udp_errors;         /* the initial UDP error counter value of OS   */
-//     u_int64_t           this_udp_errors;          /* the current UDP error counter value of OS   */
-// } statistics_t;
-
 type statistics struct {
-	startTime time.Time
-	stopTime  time.Time
-	thisTime  time.Time
+	startTime time.Time /* when we started timing the transfer         */
+	stopTime  time.Time /* when we finished timing the transfer        */
+	thisTime  time.Time /* when we began this data collection period   */
 
-	thisBlocks      uint32
-	thisRetransmits uint32
+	thisBlocks      uint32 /* the number of blocks in this interval       */
+	thisRetransmits uint32 /* the number of retransmits in this interval  */
 
-	totalBlocks           uint32
-	totalRetransmits      uint32
-	totalRecvdRetransmits uint32
-	totalLost             uint32
+	totalBlocks           uint32 /* the total number of blocks transmitted      */
+	totalRetransmits      uint32 /* the total number of retransmission requests */
+	totalRecvdRetransmits uint32 /* the total number of received retransmits    */
+	totalLost             uint32 /* the final number of data blocks lost        */
 
-	thisFlowOriginals      uint32
-	thisFlowRetransmitteds uint32
+	thisFlowOriginals      uint32  /* the number of original blocks this interval */
+	thisFlowRetransmitteds uint32  /* the number of re-tx'ed blocks this interval */
+	thisTransmitRate       float64 /* the unfiltered transmission rate (bps)      */
 
-	thisTransmitRate   float64
-	transmitRate       float64
-	thisRetransmitRate float64
-	errorRate          float64
+	transmitRate       float64 /* the smoothed transmission rate (bps)        */
+	thisRetransmitRate float64 /* the unfiltered retransmission rate (bps)    */
+	errorRate          float64 /* the smoothed error rate (% x 1000)          */
 
-	startUdpErrors int64
-	thisUdpErrors  int64
+	startUdpErrors int64 /* the initial UDP error counter value of OS   */
+	thisUdpErrors  int64 /* the current UDP error counter value of OS   */
 }
 
 /* state of the retransmission table for a transfer */
-// typedef struct {
-//     u_int32_t          *table;                    /* the table of retransmission blocks          */
-//     u_int32_t           table_size;               /* the size of the retransmission table        */
-//     u_int32_t           index_max;                /* the maximum table index in active use       */
-// } retransmit_t;
-
 type retransmit struct {
-	table     []uint32
-	tableSize uint32
-	indexMax  uint32
+	table     []uint32 /* the table of retransmission blocks          */
+	tableSize uint32   /* the size of the retransmission table        */
+	indexMax  uint32   /* the maximum table index in active use       */
 }
 
 /* state of a TTP transfer */
-// typedef struct {
-//     time_t              epoch;                    /* the Unix epoch used to identify this run    */
-//     const char         *remote_filename;          /* the path to the file (on the server)        */
-//     const char         *local_filename;           /* the path to the file (locally)              */
-//     FILE               *file;                     /* the open file that we're receiving          */
-//     FILE               *vsib;                     /* the vsib file number                        */
-//     FILE               *transcript;               /* the transcript file that we're writing to   */
-//     int                 udp_fd;                   /* the file descriptor of our UDP socket       */
-//     u_int64_t           file_size;                /* the total file size (in bytes)              */
-//     u_int32_t           block_count;              /* the total number of blocks in the file      */
-//     u_int32_t           next_block;               /* the index of the next block we expect       */
-//     u_int32_t           gapless_to_block;         /* the last block in the fully received range  */
-//     retransmit_t        retransmit;               /* the retransmission data for the transfer    */
-//     statistics_t        stats;                    /* the statistical data for the transfer       */
-//     ring_buffer_t      *ring_buffer;              /* the blocks waiting for a disk write         */
-//     u_char             *received;                 /* bitfield for the received blocks of data    */
-//     u_int32_t           blocks_left;              /* the number of blocks left to receive        */
-//     u_char              restart_pending;          /* 1 to ignore too new packets                 */
-//     u_int32_t           restart_lastidx;          /* the last index in the restart list          */
-//     u_int32_t           restart_wireclearidx;     /* the max on-wire block number before react   */
-//     u_int32_t           on_wire_estimate;         /* the max packets on wire if RTT is 500ms     */
-// } ttp_transfer_t;
-
 type transfer struct {
-	epoch                 uint32
-	remoteFileName        string
-	localFileName         string
-	localFile             *os.File
-	udpConnection         *net.UDPConn
-	fileSize              uint64
-	blockCount            uint32
-	nextBlock             uint32
-	gaplessToBlock        uint32
-	retransmit            retransmit
-	stats                 statistics
-	ringBuffer            *ringBuffer
-	received              []byte
-	blocksLeft            uint32
-	restartPending        bool
-	restartLastIndex      uint32
-	restartWireClearIndex uint32
-	onWireEstimate        uint32
-	transcript            *os.File
+	epoch                 uint32       /* the Unix epoch used to identify this run    */
+	remoteFileName        string       /* the path to the file (on the server)        */
+	localFileName         string       /* the path to the file (locally)              */
+	localFile             *os.File     /* the open file that we're receiving          */
+	transcript            *os.File     /* the transcript file that we're writing to   */
+	udpConnection         *net.UDPConn /* the file descriptor of our UDP socket       */
+	fileSize              uint64       /* the total file size (in bytes)              */
+	blockCount            uint32       /* the total number of blocks in the file      */
+	nextBlock             uint32       /* the index of the next block we expect       */
+	gaplessToBlock        uint32       /* the last block in the fully received range  */
+	retransmit            retransmit   /* the retransmission data for the transfer    */
+	stats                 statistics   /* the statistical data for the transfer       */
+	ringBuffer            *ringBuffer  /* the blocks waiting for a disk write         */
+	received              []byte       /* bitfield for the received blocks of data    */
+	blocksLeft            uint32       /* the number of blocks left to receive        */
+	restartPending        bool         /* 1 to ignore too new packets                 */
+	restartLastIndex      uint32       /* the last index in the restart list          */
+	restartWireClearIndex uint32       /* the max on-wire block number before react   */
+	onWireEstimate        uint32       /* the max packets on wire if RTT is 500ms     */
 }
 
+/* state of a Tsunami session as a whole */
 type Session struct {
-	param      Parameter
-	tr         *transfer
-	address    net.IP
-	connection *net.TCPConn
+	param      Parameter    /* the TTP protocol parameters                 */
+	tr         *transfer    /* the current transfer in progress, if any    */
+	connection *net.TCPConn /* the connection to the remote server         */
+	address    net.IP       /* the socket address of the remote server     */
 }
 
 /*------------------------------------------------------------------------
- * int ttp_authenticate(ttp_session_t *session, u_char *secret);
+ * int authenticate(session_t *session, u_char *secret);
  *
  * Given an active Tsunami session, returns 0 if we are able to
  * negotiate authentication successfully and a non-zero value
@@ -189,7 +141,7 @@ func (s *Session) authenticate(secret string) error {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_negotiate(ttp_session_t *session);
+ * int negotiate(session_t *session);
  *
  * Performs all of the negotiation with the remote server that is done
  * prior to authentication.  At the moment, this consists of verifying
@@ -228,7 +180,7 @@ func (s *Session) negotiate() error {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_open_transfer(ttp_session_t *session,
+ * int open_transfer(session_t *session,
  *                       const char *remote_filename,
  *                       const char *local_filename);
  *
@@ -348,7 +300,7 @@ func (s *Session) openTransfer(remote_filename, local_filename string) error {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_open_port(ttp_session_t *session);
+ * int open_port(session_t *session);
  *
  * Creates a new UDP socket for receiving the file data associated with
  * our pending transfer and communicates the port number back to the
@@ -376,7 +328,7 @@ func (s *Session) openPort() error {
 }
 
 /*------------------------------------------------------------------------
- * int got_block(ttp_session_t* session, u_int32_t blocknr)
+ * int got_block(session_t* session, u_int32_t blocknr)
  *
  * Returns non-0 if the block has already been received
  *------------------------------------------------------------------------*/
@@ -388,7 +340,7 @@ func (s *Session) gotBlock(blocknr uint32) int {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_repeat_retransmit(ttp_session_t *session);
+ * int repeat_retransmit(session_t *session);
  *
  * Tries to repeat all of the outstanding retransmit requests for the
  * current transfer on the given session.  Returns 0 on success and
@@ -476,7 +428,7 @@ func (s *Session) repeatRetransmit() error {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_request_retransmit(ttp_session_t *session, u_int32_t block);
+ * int request_retransmit(session_t *session, u_int32_t block);
  *
  * Requests a retransmission of the given block in the current transfer.
  * Returns 0 on success and non-zero otherwise.
@@ -551,7 +503,7 @@ func (s *Session) requestRetransmit(block uint32) error {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_request_stop(ttp_session_t *session);
+ * int request_stop(session_t *session);
  *
  * Requests that the server stop transmitting data for the current
  * file transfer in the given session.  This is done by sending a
@@ -572,7 +524,7 @@ func (s *Session) requestStop() error {
 }
 
 /*------------------------------------------------------------------------
- * int ttp_update_stats(ttp_session_t *session);
+ * int update_stats(session_t *session);
  *
  * This routine must be called every interval to update the statistics
  * for the progress of the ongoing file transfer.  Returns 0 on success
