@@ -1,34 +1,85 @@
 package client
 
 import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
 	"sync"
 )
 
-/* ring buffer for queuing blocks to be written to disk */
-// typedef struct {
-//     u_char             *datagrams;                /* the collection of queued datagrams          */
-//     int                 datagram_size;            /* the size of a single datagram               */
-//     int                 base_data;                /* the index of the first slot with data       */
-//     int                 count_data;               /* the number of slots in use for data         */
-//     int                 count_reserved;           /* the number of slots reserved without data   */
-//     pthread_mutex_t     mutex;                    /* a mutex to guard the ring buffer            */
-//     pthread_cond_t      data_ready_cond;          /* condition variable to indicate data ready   */
-//     int                 data_ready;               /* nonzero when data is ready, else 0          */
-//     pthread_cond_t      space_ready_cond;         /* condition variable to indicate space ready  */
-//     int                 space_ready;              /* nonzero when space is available, else 0     */
-// } ring_buffer_t;
+const EMPTY = -1
 
-type ring_buffer struct {
+/* ring buffer for queuing blocks to be written to disk */
+type ringBuffer struct {
 	datagrams      []byte     /* the collection of queued datagrams          */
-	datagram_size  int        /* the size of a single datagram               */
-	base_data      int        /* the index of the first slot with data       */
-	count_data     int        /* the number of slots in use for data         */
-	count_reserved int        /* the number of slots reserved without data   */
+	datagramSize   int        /* the size of a single datagram               */
+	baseData       int        /* the index of the first slot with data       */
+	countData      int        /* the number of slots in use for data         */
+	countReserved  int        /* the number of slots reserved without data   */
 	mutex          sync.Mutex /* a mutex to guard the ring buffer            */
-	// pthread_cond_t      data_ready_cond;          /* condition variable to indicate data ready   */
-	data_ready bool /* nonzero when data is ready, else 0          */
-	// pthread_cond_t      space_ready_cond;         /* condition variable to indicate space ready  */
-	space_ready bool /* nonzero when space is available, else 0     */
+	dataReadyCond  *sync.Cond /* condition variable to indicate data ready   */
+	dataReady      bool       /* nonzero when data is ready, else 0          */
+	spaceReadyCond *sync.Cond /* condition variable to indicate space ready  */
+	spaceReady     bool       /* nonzero when space is available, else 0     */
+}
+
+/*------------------------------------------------------------------------
+ * int ring_full(ring_buffer *ring);
+ *
+ * Returns non-zero if ring is full.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) isFull() bool {
+	ring.mutex.Lock()
+	full := !ring.spaceReady
+	ring.mutex.Unlock()
+	return full
+}
+
+/*------------------------------------------------------------------------
+ * int ring_cancel(ring_buffer *ring);
+ *
+ * Cancels the reservation for the slot that was most recently reserved.
+ * Returns 0 on success and nonzero on error.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) cancel() error {
+	ring.mutex.Lock()
+	defer ring.mutex.Unlock()
+
+	/* convert the reserved slot into space */
+	ring.countReserved--
+	if ring.countReserved < 0 {
+		return errors.New("Attempt made to cancel unreserved slot in ring buffer")
+	}
+
+	/* signal that space is available */
+	ring.spaceReady = true
+	ring.spaceReadyCond.Signal()
+	return nil
+}
+
+/*------------------------------------------------------------------------
+ * int ring_confirm(ring_buffer *ring);
+ *
+ * Confirms that data is now available in the slot that was most
+ * recently reserved.  This data will be handled by the disk thread.
+ * Returns 0 on success and nonzero on error.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) confirm() error {
+	ring.mutex.Lock()
+	defer ring.mutex.Unlock()
+
+	/* convert the reserved slot into data */
+	ring.countData++
+	ring.countReserved--
+	if ring.countReserved < 0 {
+		return errors.New("Attempt made to confirm unreserved slot in ring buffer")
+	}
+
+	/* signal that data is available */
+	ring.dataReady = true
+	ring.dataReadyCond.Signal()
+	return nil
 }
 
 /*------------------------------------------------------------------------
@@ -39,20 +90,143 @@ type ring_buffer struct {
  * allocation and initialization failed.  The new ring buffer will hold
  * ([6 + block_size] * MAX_BLOCKS_QUEUED datagrams.
  *------------------------------------------------------------------------*/
-func ring_create(session *Session) *ring_buffer {
-	ring := new(ring_buffer)
+func (session *Session) NewRingBuffer() *ringBuffer {
+	ring := new(ringBuffer)
 
-	ring.datagram_size = 6 + int(session.param.blockSize)
-	ring.datagrams = make([]byte, ring.datagram_size*MAX_BLOCKS_QUEUED)
+	ring.datagramSize = 6 + int(session.param.blockSize)
+	ring.datagrams = make([]byte, ring.datagramSize*MAX_BLOCKS_QUEUED)
 
-	ring.data_ready = false
-	ring.space_ready = true
+	ring.dataReady = false
+	ring.spaceReady = true
 
 	/* initialize the indices */
-	ring.count_data = 0
-	ring.count_reserved = 0
-	ring.base_data = 0
+	ring.countData = 0
+	ring.countReserved = 0
+	ring.baseData = 0
 
-	/* and return the ring structure */
+	ring.dataReadyCond = sync.NewCond(&ring.mutex)
+	ring.spaceReadyCond = sync.NewCond(&ring.mutex)
+
 	return ring
+}
+
+/*------------------------------------------------------------------------
+ * int ring_destroy(ring_buffer_t *ring);
+ *
+ * Destroys the ring buffer data structure for a Tsunami transfer,
+ * including the mutex and condition variables.  Returns 0 on success
+ * and nonzero on failure.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) destroy() {
+	// do nothing in go
+}
+
+/*------------------------------------------------------------------------
+ * int ring_dump(ring_buffer_t *ring, FILE *out);
+ *
+ * Dumps the current contents of the ring buffer to the given output
+ * stream.  Returns zero on success and non-zero on error.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) dump(out io.Writer) {
+	ring.mutex.Lock()
+	/* print out the top-level fields */
+	fmt.Fprintln(out, "datagram_size  = ", ring.datagramSize)
+	fmt.Fprintln(out, "base_data      = ", ring.baseData)
+	fmt.Fprintln(out, "count_data     = ", ring.countData)
+	fmt.Fprintln(out, "count_reserved = ", ring.countReserved)
+	fmt.Fprintln(out, "data_ready     = ", ring.dataReady)
+	fmt.Fprintln(out, "space_ready    = ", ring.spaceReady)
+
+	/* print out the block list */
+	fmt.Fprint(out, "block list     = [")
+	for index := ring.baseData; index < ring.baseData+ring.countData; index++ {
+		offset := ((index % MAX_BLOCKS_QUEUED) * ring.datagramSize)
+		d := binary.BigEndian.Uint32(ring.datagrams[offset:])
+		fmt.Fprint(out, d)
+	}
+	fmt.Fprintln(out, "]")
+	ring.mutex.Unlock()
+}
+
+/*------------------------------------------------------------------------
+ * u_char *ring_peek(ring_buffer_t *ring);
+ *
+ * Attempts to return a pointer to the datagram at the head of the ring.
+ * This will block if the ring is currently empty.  Returns NULL on error.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) ring_peek() []byte {
+	ring.mutex.Lock()
+
+	/* wait for the data-ready variable to make us happy */
+	for !ring.dataReady {
+		ring.dataReadyCond.Wait()
+	}
+	ring.mutex.Unlock()
+	/* find the address we want */
+	address := ring.datagrams[ring.datagramSize+ring.baseData:]
+	return address
+}
+
+/*------------------------------------------------------------------------
+ * int ring_pop(ring_buffer_t *ring);
+ *
+ * Attempts to remove a datagram from the head of the ring.  This will
+ * block if the ring is currently empty.  Returns 0 on success and
+ * nonzero on error.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) pop() {
+	ring.mutex.Lock()
+
+	/* wait for the data-ready variable to make us happy */
+	for !ring.dataReady {
+		ring.dataReadyCond.Wait()
+	}
+
+	/* perform the pop operation */
+	ring.baseData = (ring.baseData + 1) % MAX_BLOCKS_QUEUED
+	ring.countData--
+	if ring.countData == 0 {
+		ring.dataReady = false
+	}
+	ring.spaceReady = true
+
+	ring.mutex.Unlock()
+}
+
+/*------------------------------------------------------------------------
+ * u_char *ring_reserve(ring_buffer_t *ring);
+ *
+ * Reserves a slot in the ring buffer for the next datagram.  A pointer
+ * to the memory that should be used to store the datagram is returned.
+ * This will block if no space is available in the ring buffer.  Returns
+ * NULL on error.
+ *------------------------------------------------------------------------*/
+func (ring *ringBuffer) reserve() ([]byte, error) {
+	ring.mutex.Lock()
+	defer ring.mutex.Unlock()
+
+	/* figure out which slot comes next */
+	next := (ring.baseData + ring.countData + ring.countReserved) % MAX_BLOCKS_QUEUED
+
+	/* wait for the space-ready variable to make us happy */
+	for !ring.spaceReady {
+		fmt.Println("FULL! -- ring_reserve() blocking.")
+		fmt.Printf("space_ready = %d, data_ready = %d\n", ring.spaceReady, ring.dataReady)
+		ring.spaceReadyCond.Wait()
+	}
+
+	/* perform the reservation */
+	ring.countReserved++
+	if ring.countReserved > 1 {
+		return nil, errors.New("Attempt made to reserve two slots in ring buffer")
+	}
+
+	if ((next + 1) % MAX_BLOCKS_QUEUED) == ring.baseData {
+		ring.spaceReady = false
+	}
+
+	/* find the address we want */
+	address := ring.datagrams[next*ring.datagramSize:]
+
+	return address, nil
 }

@@ -112,7 +112,7 @@ type transfer struct {
 	gaplessToBlock        uint32
 	retransmit            retransmit
 	stats                 statistics
-	ringBuffer            *ring_buffer
+	ringBuffer            *ringBuffer
 	received              []byte
 	blocksLeft            uint32
 	restartPending        bool
@@ -634,7 +634,7 @@ func (s *Session) ttp_update_stats() error {
 
 	/* precalculate some fractions */
 	retransmits_fraction := float64(stats.thisRetransmits) / (1.0 + float64(stats.thisRetransmits+stats.totalBlocks-stats.thisBlocks))
-	ringfill_fraction := float64(s.tr.ringBuffer.count_data) / MAX_BLOCKS_QUEUED
+	ringfill_fraction := float64(s.tr.ringBuffer.countData) / MAX_BLOCKS_QUEUED
 	// total_retransmits_fraction := float64(stats.totalRetransmits) / float64(stats.totalRetransmits+stats.totalBlocks)
 
 	/* update the rate statistics */
