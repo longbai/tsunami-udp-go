@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
+	// "io"
 	"net"
 	"os"
 	"time"
@@ -104,7 +104,7 @@ type transfer struct {
 	epoch                 uint32
 	remoteFileName        string
 	localFileName         string
-	localFile             io.Writer
+	localFile             *os.File
 	udpConnection         *net.UDPConn
 	fileSize              uint64
 	blockCount            uint32
@@ -126,7 +126,7 @@ type Session struct {
 	param      Parameter
 	tr         *transfer
 	address    net.IP
-	connection net.Conn
+	connection *net.TCPConn
 }
 
 /*------------------------------------------------------------------------

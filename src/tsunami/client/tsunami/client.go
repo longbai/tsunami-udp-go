@@ -1,5 +1,11 @@
 package main
 
+// const char* build_time(void) {
+//     static const char* t = __DATE__ "  " __TIME__;
+//     return t;
+// }
+import "C"
+
 import (
 	"bufio"
 	"errors"
@@ -10,6 +16,10 @@ import (
 
 	"tsunami"
 	"tsunami/client"
+)
+
+var (
+	buildTime = C.GoString(C.build_time())
 )
 
 func run(args []string, parameter *client.Parameter, session **client.Session) error {
@@ -52,7 +62,9 @@ func run(args []string, parameter *client.Parameter, session **client.Session) e
 }
 
 func main() {
-	fmt.Fprintf(os.Stderr, "Tsunami Go Client for protocol rev %X\nRevision: %v\n", tsunami.PROTOCOL_REVISION, 0.1)
+	fmt.Fprintf(os.Stderr,
+		"Tsunami Client for protocol rev %s\nRevision: %s\nCompiled: %s\n",
+		tsunami.PROTOCOL_REVISION, tsunami.TSUNAMI_CVS_BUILDNR, buildTime)
 	parameter := client.NewParameter()
 	var session *client.Session
 	flag.Parse()
@@ -63,6 +75,7 @@ func main() {
 			reader := bufio.NewReader(os.Stdin)
 			line, _, err := reader.ReadLine()
 			if err != nil {
+				fmt.Fprintln(os.Stderr, "Could not read command input", err)
 				os.Exit(1)
 			}
 			if len(line) == 0 {
