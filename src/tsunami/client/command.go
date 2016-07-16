@@ -13,7 +13,7 @@ import (
 )
 
 /*------------------------------------------------------------------------
- * int Command_close(Command_t *Command, ttp_session_t *session)
+ * int Command_close(Command_t *Command, session_t *session)
  *
  * Closes the given open Tsunami control session if it's active, thus
  * making it invalid for further use.  Returns 0 on success and non-zero
@@ -33,8 +33,8 @@ func CommandClose(session *Session) error {
 }
 
 /*------------------------------------------------------------------------
- * ttp_session_t *Command_connect(Command_t *Command,
- *                                ttp_parameter_t *parameter)
+ * session_t *Command_connect(Command_t *Command,
+ *                                parameter_t *parameter)
  *
  * Opens a new Tsunami control session to the server specified in the
  * command or in the given set of default parameters.  This involves
@@ -70,7 +70,7 @@ func CommandConnect(parameter *Parameter, args []string) (session *Session, err 
 		return nil, err
 	}
 
-	err = session.ttp_negotiate()
+	err = session.negotiate()
 	if err != nil {
 		session.connection.Close()
 		session.connection = nil
@@ -80,7 +80,7 @@ func CommandConnect(parameter *Parameter, args []string) (session *Session, err 
 
 	secret := parameter.passphrase
 
-	err = session.ttp_authenticate(secret)
+	err = session.authenticate(secret)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Authentication failed")
 		session.connection.Close()
@@ -96,7 +96,7 @@ func CommandConnect(parameter *Parameter, args []string) (session *Session, err 
 }
 
 /*------------------------------------------------------------------------
- * int Command_dir(Command_t *Command, ttp_session_t *session)
+ * int Command_dir(Command_t *Command, session_t *session)
  *
  * Tries to request a list of server shared files and their sizes.
  * Returns 0 on a successful transfer and nonzero on an error condition.
@@ -148,7 +148,7 @@ func CommandDir(session *Session) error {
 }
 
 /*------------------------------------------------------------------------
- * int command_help(command_t *command, ttp_session_t *session);
+ * int command_help(command_t *command, session_t *session);
  *
  * Offers help on either the list of available commands or a particular
  * command.  Returns 0 on success and nonzero on failure, which is not
@@ -218,7 +218,7 @@ func CommandHelp(args []string) {
 }
 
 /*------------------------------------------------------------------------
- * int command_quit(command_t *command, ttp_session_t *session);
+ * int command_quit(command_t *command, session_t *session);
  *
  * Closes the open connection (if there is one) and aborts the operation
  * of the Tsunami client.  For API uniformity, we pretend to return
@@ -236,7 +236,7 @@ func CommandQuit(session *Session) {
 }
 
 /*------------------------------------------------------------------------
- * int command_set(command_t *command, ttp_parameter_t *parameter);
+ * int command_set(command_t *command, parameter_t *parameter);
  *
  * Sets a particular parameter to the given value, or simply reports
  * on the current value of one or more fields.  Returns 0 on success

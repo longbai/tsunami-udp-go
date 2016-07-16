@@ -149,7 +149,7 @@ type Session struct {
  *         result byte of 0.  Otherwise, it transmits a non-zero
  *         result byte.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_authenticate(secret string) error {
+func (s *Session) authenticate(secret string) error {
 	random := make([]byte, 64) /* the buffer of random data               */
 	result := make([]byte, 1)  /* the result byte from the server         */
 
@@ -198,7 +198,7 @@ func (s *Session) ttp_authenticate(secret string) error {
  *
  * Values are transmitted in network byte order.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_negotiate() error {
+func (s *Session) negotiate() error {
 	buf := make([]byte, 4)
 
 	binary.BigEndian.PutUint32(buf, tsunami.PROTOCOL_REVISION)
@@ -238,7 +238,7 @@ func (s *Session) ttp_negotiate() error {
  * retrieve the file parameters, open the file for writing, and return
  * 0 for success.  If anything goes wrong, we return a non-zero value.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_open_transfer(remote_filename, local_filename string) error {
+func (s *Session) openTransfer(remote_filename, local_filename string) error {
 	result := make([]byte, 1) /* the result byte from the server     */
 
 	count, e := fmt.Fprintf(s.connection, "%v\n", remote_filename)
@@ -354,7 +354,7 @@ func (s *Session) ttp_open_transfer(remote_filename, local_filename string) erro
  * our pending transfer and communicates the port number back to the
  * server.  Returns 0 on success and non-zero on failure.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_open_port() error {
+func (s *Session) openPort() error {
 	a := fmt.Sprintf(":%v", s.param.clientPort)
 	addr, err := net.ResolveUDPAddr("udp", a)
 	if err != nil {
@@ -380,7 +380,7 @@ func (s *Session) ttp_open_port() error {
  *
  * Returns non-0 if the block has already been received
  *------------------------------------------------------------------------*/
-func (s *Session) got_block(blocknr uint32) int {
+func (s *Session) gotBlock(blocknr uint32) int {
 	if blocknr > s.tr.blockCount {
 		return 1
 	}
@@ -396,7 +396,7 @@ func (s *Session) got_block(blocknr uint32) int {
  * on the transmission table, such as relocating the entries toward the
  * bottom of the array.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_repeat_retransmit() error {
+func (s *Session) repeatRetransmit() error {
 	var retransmission [MAX_RETRANSMISSION_BUFFER]tsunami.Retransmission
 
 	s.tr.stats.thisRetransmits = 0
@@ -411,7 +411,7 @@ func (s *Session) ttp_repeat_retransmit() error {
 		block = transmit.table[entry]
 
 		/* if we want the block */
-		if block != 0 && s.got_block(block) == 0 {
+		if block != 0 && s.gotBlock(block) == 0 {
 
 			/* save it */
 			transmit.table[count] = block
@@ -481,7 +481,7 @@ func (s *Session) ttp_repeat_retransmit() error {
  * Requests a retransmission of the given block in the current transfer.
  * Returns 0 on success and non-zero otherwise.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_request_retransmit(block uint32) error {
+func (s *Session) requestRetransmit(block uint32) error {
 	// u_int32_t     tmp32_ins = 0, tmp32_up;
 	// u_int32_t     idx = 0;
 
@@ -489,7 +489,7 @@ func (s *Session) ttp_request_retransmit(block uint32) error {
 	rexmit := &(s.tr.retransmit)
 
 	/* double checking: if we already got the block, don't add it */
-	if s.got_block(block) != 0 {
+	if s.gotBlock(block) != 0 {
 		return nil
 	}
 
@@ -559,7 +559,7 @@ func (s *Session) ttp_request_retransmit(block uint32) error {
  * success and non-zero otherwise.  Success means that we successfully
  * requested, not that we successfully halted.
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_request_stop() error {
+func (s *Session) requestStop() error {
 	var retransmission []tsunami.Retransmission = []tsunami.Retransmission{tsunami.Retransmission{0, 0, 0}}
 	retransmission[0].RequestType = tsunami.REQUEST_STOP
 
@@ -578,7 +578,7 @@ func (s *Session) ttp_request_stop() error {
  * for the progress of the ongoing file transfer.  Returns 0 on success
  * and non-zero on failure.  (There is not currently any way to fail.)
  *------------------------------------------------------------------------*/
-func (s *Session) ttp_update_stats() error {
+func (s *Session) updateStats() error {
 	// time_t            now_epoch = time(NULL);                 /* the current Unix epoch                         */
 	// u_int64_t         delta;                                  /* time delta since last statistics update (usec) */
 	// double            d_seconds;

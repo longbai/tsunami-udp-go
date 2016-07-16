@@ -107,10 +107,10 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 			}
 		}
 		/* negotiate the file request with the server */
-		if err := session.ttp_open_transfer(xfer.remoteFileName, xfer.localFileName); err != nil {
+		if err := session.openTransfer(xfer.remoteFileName, xfer.localFileName); err != nil {
 			return errors.New(fmt.Sprint("File transfer request failed", err))
 		}
-		if err := session.ttp_open_port(); err != nil {
+		if err := session.openPort(); err != nil {
 			return err
 		}
 
