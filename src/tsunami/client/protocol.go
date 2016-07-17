@@ -517,6 +517,10 @@ func (s *Session) requestStop() error {
 	return nil
 }
 
+const u_mega = int64(1024 * 1024)
+
+const u_giga = int64(1024 * 1024 * 1024)
+
 /*------------------------------------------------------------------------
  * int update_stats(session_t *session);
  *
@@ -524,70 +528,55 @@ func (s *Session) requestStop() error {
  * for the progress of the ongoing file transfer.  Returns 0 on success
  * and non-zero on failure.  (There is not currently any way to fail.)
  *------------------------------------------------------------------------*/
-func (s *Session) updateStats() error {
-	// time_t            now_epoch = time(NULL);                 /* the current Unix epoch                         */
-	// u_int64_t         delta;                                  /* time delta since last statistics update (usec) */
-	// double            d_seconds;
-	// u_int64_t         delta_total;                            /* time delta since start of transmission (usec)  */
-	// double            d_seconds_total;
-	// u_int64_t         temp;                                   /* temporary value for building the elapsed time  */
-	// int               hours, minutes, seconds, milliseconds;  /* parts of the elapsed time                      */
-	// double            data_total;                             /* the total amount of data transferred (bytes)   */
-	// double            data_total_rate;
-	// double            data_this;                              /* the amount of data since last stat time        */
-	// double            data_this_rexmit;                       /* the amount of data in received retransmissions */
-	// double            data_this_goodpt;                       /* the amount of data as non-lost packets         */
-	// double            retransmits_fraction;                   /* how many retransmit requests there were vs received blocks */
-	// double            total_retransmits_fraction;
-	// double            ringfill_fraction;
-	// statistics_t     *stats = &(session->transfer.stats);
+func (s *Session) updateStats() {
+	now_epoch := time.Now() /* the current Unix epoch                         */
+	var delta int64         /* time delta since last statistics update (usec) */
+	var delta_total int64   /* time delta since start of transmission (usec)  */
+	var temp int64          /* temporary value for building the elapsed time  */
+
+	var data_total float64       /* the total amount of data transferred (bytes)   */
+	var data_this float64        /* the amount of data since last stat time        */
+	var data_this_rexmit float64 /* the amount of data in received retransmissions */
+	// var data_this_goodpt float64     /* the amount of data as non-lost packets         */
+	var retransmits_fraction float64 /* how many retransmit requests there were vs received blocks */
+
 	retransmission := make([]tsunami.Retransmission, 1)
-	// int               status;
-	// static u_int32_t  iteration = 0;
-	// static char       stats_line[128];
-	// static char       stats_flags[8];
 
 	stats := &s.tr.stats
 
-	// double ff, fb;
-
-	u_mega := int64(1024 * 1024)
-	// u_giga := 1024 * 1024 * 1024
-
 	/* find the total time elapsed */
-	delta := tsunami.Get_usec_since(stats.thisTime)
-	temp := tsunami.Get_usec_since(stats.startTime)
-	// delta_total := temp
-	// milliseconds := (temp % 1000000) / 1000
+	delta = tsunami.Get_usec_since(stats.thisTime)
+	temp = tsunami.Get_usec_since(stats.startTime)
+	milliseconds := (temp % 1000000) / 1000
 	temp /= 1000000
-	// seconds := temp % 60
+	seconds := temp % 60
 	temp /= 60
-	// minutes := temp % 60
+	minutes := temp % 60
 	temp /= 60
-	// hours := temp
+	hours := temp
 
 	d_seconds := delta / 1e6
-	// d_seconds_total := delta_total / 1e6
+	d_seconds_total := delta_total / 1e6
 
 	/* find the amount of data transferred (bytes) */
-	// data_total := float64(s.param.blockSize) * float64(stats.totalBlocks)
-	data_this := float64(s.param.blockSize) * float64(stats.totalBlocks-stats.thisBlocks)
-	data_this_rexmit := float64(s.param.blockSize) * float64(stats.thisFlowRetransmitteds)
-	// data_this_goodpt := float64(s.param.blockSize) * float64(stats.thisFlowOriginals)
+	data_total = float64(s.param.blockSize) * float64(stats.totalBlocks)
+	data_this = float64(s.param.blockSize) * float64(stats.totalBlocks-stats.thisBlocks)
+	data_this_rexmit = float64(s.param.blockSize) * float64(stats.thisFlowRetransmitteds)
+	// data_this_goodpt = float64(s.param.blockSize) * float64(stats.thisFlowOriginals)
 
 	/* get the current UDP receive error count reported by the operating system */
 	stats.thisUdpErrors = tsunami.Get_udp_in_errors()
 
 	/* precalculate some fractions */
-	retransmits_fraction := float64(stats.thisRetransmits) / (1.0 + float64(stats.thisRetransmits+stats.totalBlocks-stats.thisBlocks))
+	retransmits_fraction = float64(stats.thisRetransmits) / (1.0 + float64(stats.thisRetransmits+stats.totalBlocks-stats.thisBlocks))
 	ringfill_fraction := float64(s.tr.ringBuffer.countData) / MAX_BLOCKS_QUEUED
-	// total_retransmits_fraction := float64(stats.totalRetransmits) / float64(stats.totalRetransmits+stats.totalBlocks)
+	total_retransmits_fraction := float64(stats.totalRetransmits) / float64(stats.totalRetransmits+stats.totalBlocks)
 
 	/* update the rate statistics */
 	// incoming transmit rate R = goodput R (Mbit/s) + retransmit R (Mbit/s)
 	stats.thisTransmitRate = 8.0 * data_this / float64(d_seconds*u_mega)
 	stats.thisRetransmitRate = 8.0 * data_this_rexmit / float64(d_seconds*u_mega)
-	// data_total_rate := 8.0 * data_total / float64(d_seconds_total*u_mega)
+	data_total_rate := 8.0 * data_total / float64(d_seconds_total*u_mega)
 
 	fb := float64(s.param.history) / 100.0 // feedback
 	ff := 1.0 - fb                         // feedforward
@@ -603,13 +592,65 @@ func (s *Session) updateStats() error {
 	retransmission[0].ErrorRate = uint32(s.tr.stats.errorRate)
 	_, err := s.connection.Write(tsunami.Retransmissions(retransmission).Bytes())
 	if err != nil {
-		return err
+		fmt.Fprintln(os.Stderr, "Could not send error rate information", err)
+		return
 	}
 
+	/* build the stats string */
+	statsFlags := s.statsFlags()
+	//matlab
+	// format := "%02d\t%02d\t%02d\t%03d\t%4u\t%6.2f\t%6.1f\t%5.1f\t%7u\t%6.1f\t%6.1f\t%5.1f\t%5d\t%5d\t%7u\t%8u\t%8Lu\t%s\n"
+	format := "%02d:%02d:%02d.%03d %4u %6.2fM %6.1fMbps %5.1f%% %7u %6.1fG %6.1fMbps %5.1f%% %5d %5d %7u %8u %8u %s\n"
 	/* print to the transcript if the user wants */
-	if s.param.transcript {
-		// session log
+	statusLine := fmt.Sprintf(format, hours, minutes, seconds, milliseconds,
+		stats.totalBlocks-stats.thisBlocks,
+		stats.thisRetransmitRate,
+		stats.thisTransmitRate,
+		100.0*retransmits_fraction,
+		s.tr.stats.totalBlocks,
+		data_total/float64(u_giga),
+		data_total_rate,
+		100.0*total_retransmits_fraction,
+		s.tr.retransmit.indexMax,
+		s.tr.ringBuffer.countData,
+		s.tr.blocksLeft,
+		stats.thisRetransmits,
+		uint64(stats.thisUdpErrors-stats.startUdpErrors),
+		statsFlags)
+
+	/* give the user a show if they want it */
+	if s.param.verbose {
+		/* screen mode */
+		if s.param.outputMode == SCREEN_MODE {
+			fmt.Printf("\033[2J\033[H")
+			fmt.Printf("Current time:   %s\n", now_epoch.Format(time.RFC3339))
+			fmt.Printf("Elapsed time:   %02d:%02d:%02d.%03d\n\n", hours, minutes, seconds, milliseconds)
+			fmt.Printf("Last interval\n--------------------------------------------------\n")
+			fmt.Printf("Blocks count:     %u\n", stats.totalBlocks-stats.thisBlocks)
+			fmt.Printf("Data transferred: %0.2f GB\n", data_this/float64(u_giga))
+			fmt.Printf("Transfer rate:    %0.2f Mbps\n", stats.thisTransmitRate)
+			fmt.Printf("Retransmissions:  %u (%0.2f%%)\n\n", stats.thisRetransmits, 100.0*retransmits_fraction)
+			fmt.Printf("Cumulative\n--------------------------------------------------\n")
+			fmt.Printf("Blocks count:     %u\n", s.tr.stats.totalBlocks)
+			fmt.Printf("Data transferred: %0.2f GB\n", data_total/float64(u_giga))
+			fmt.Printf("Transfer rate:    %0.2f Mbps\n", data_total_rate)
+			fmt.Printf("Retransmissions:  %u (%0.2f%%)\n", stats.totalRetransmits, 100.0*total_retransmits_fraction)
+			fmt.Printf("Flags          :  %s\n\n", statsFlags)
+			fmt.Printf("OS UDP rx errors: %u\n", uint64(stats.thisUdpErrors-stats.startUdpErrors))
+
+			/* line mode */
+		} else {
+			// s.iteration++
+			// if s.iteration%23 == 0 {
+			// 	fmt.Printf("             last_interval                   transfer_total                   buffers      transfer_remaining  OS UDP\n")
+			// 	fmt.Printf("time          blk    data       rate rexmit     blk    data       rate rexmit queue  ring     blk   rt_len      err \n")
+			// }
+			fmt.Printf("%s", statusLine)
+		}
+		os.Stdout.Sync()
 	}
+
+	s.XsriptDataLog(statusLine)
 
 	/* reset the statistics for the next interval */
 	stats.thisBlocks = stats.totalBlocks
@@ -617,7 +658,16 @@ func (s *Session) updateStats() error {
 	stats.thisFlowOriginals = 0
 	stats.thisFlowRetransmitteds = 0
 	stats.thisTime = time.Now()
+}
 
-	/* indicate success */
-	return nil
+func (s *Session) statsFlags() string {
+	f1 := '-'
+	if s.tr.restartPending {
+		f1 = 'R'
+	}
+	f2 := 'F'
+	if s.tr.ringBuffer.spaceReady {
+		f2 = '-'
+	}
+	return fmt.Sprintf("%c%c", f1, f2)
 }
