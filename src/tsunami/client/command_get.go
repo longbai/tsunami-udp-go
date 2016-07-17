@@ -1,8 +1,10 @@
 package client
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"strconv"
 	"time"
@@ -132,4 +134,69 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 	}
 
 	return nil
+}
+
+/*------------------------------------------------------------------------
+ * void *disk_thread(void *arg);
+ *
+ * This is the thread that takes care of saved received blocks to disk.
+ * It runs until the network thread sends it a datagram with a block
+ * number of 0.  The return value has no meaning.
+ *------------------------------------------------------------------------*/
+func (session *Session) disk_thread() {
+	/* while the world is turning */
+	for {
+		/* get another block */
+		datagram := session.tr.ringBuffer.peek()
+		blockIndex := binary.BigEndian.Uint32(datagram[:4])
+		// blockType := binary.BigEndian.Uint16(datagram[4:6])
+
+		/* quit if we got the mythical 0 block */
+		if blockIndex == 0 {
+			fmt.Println("!!!!")
+			return
+		}
+
+		/* save it to disk */
+		err := session.accept_block(blockIndex, datagram[6:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Block accept failed")
+			return
+		}
+
+		/* pop the block */
+		session.tr.ringBuffer.pop()
+	}
+}
+
+/*------------------------------------------------------------------------
+ * int got_block(session_t* session, u_int32_t blocknr)
+ *
+ * Returns non-0 if the block has already been received
+ *------------------------------------------------------------------------*/
+func (s *Session) gotBlock(blocknr uint32) int {
+	if blocknr > s.tr.blockCount {
+		return 1
+	}
+	return int(s.tr.received[blocknr/8] & (1 << (blocknr % 8)))
+}
+
+/*------------------------------------------------------------------------
+ * void dump_blockmap(const char *postfix, const ttp_transfer_t *xfer)
+ *
+ * Writes the current bitmap of received block accounting into
+ * a file named like the transferred file but with an extra postfix.
+ *------------------------------------------------------------------------*/
+func (xfer *transfer) dump_blockmap(postfix string) {
+	fname := xfer.localFileName + postfix
+	fbits, err := os.OpenFile(fname, os.O_WRONLY, os.ModePerm)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not create a file for the blockmap dump")
+		return
+	}
+
+	/* write: [4 bytes block_count] [map byte 0] [map byte 1] ... [map N (partial final byte)] */
+	binary.Write(fbits, binary.LittleEndian, xfer.blockCount)
+	fbits.Write(xfer.received[:xfer.blockCount/8+1])
+	fbits.Close()
 }

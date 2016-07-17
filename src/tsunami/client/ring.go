@@ -154,7 +154,7 @@ func (ring *ringBuffer) dump(out io.Writer) {
  * Attempts to return a pointer to the datagram at the head of the ring.
  * This will block if the ring is currently empty.  Returns NULL on error.
  *------------------------------------------------------------------------*/
-func (ring *ringBuffer) ring_peek() []byte {
+func (ring *ringBuffer) peek() []byte {
 	ring.mutex.Lock()
 
 	/* wait for the data-ready variable to make us happy */

@@ -181,8 +181,8 @@ func (s *Session) negotiate() error {
 
 /*------------------------------------------------------------------------
  * int open_transfer(session_t *session,
- *                       const char *remote_filename,
- *                       const char *local_filename);
+ *                       const char *remoteFilename,
+ *                       const char *localFilename);
  *
  * Tries to create a new TTP file request object for the given session
  * by submitting a file request to the server (which is waiting for
@@ -190,10 +190,10 @@ func (s *Session) negotiate() error {
  * retrieve the file parameters, open the file for writing, and return
  * 0 for success.  If anything goes wrong, we return a non-zero value.
  *------------------------------------------------------------------------*/
-func (s *Session) openTransfer(remote_filename, local_filename string) error {
+func (s *Session) openTransfer(remoteFilename, localFilename string) error {
 	result := make([]byte, 1) /* the result byte from the server     */
 
-	count, e := fmt.Fprintf(s.connection, "%v\n", remote_filename)
+	count, e := fmt.Fprintf(s.connection, "%v\n", remoteFilename)
 	if e != nil {
 		return e
 	}
@@ -230,8 +230,8 @@ func (s *Session) openTransfer(remote_filename, local_filename string) error {
 		return e
 	}
 
-	s.tr.remoteFileName = remote_filename
-	s.tr.localFileName = local_filename
+	s.tr.remoteFileName = remoteFilename
+	s.tr.localFileName = localFilename
 
 	t8 := make([]byte, 8)
 	count, e = s.connection.Read(t8)
@@ -242,7 +242,7 @@ func (s *Session) openTransfer(remote_filename, local_filename string) error {
 		return errors.New("Could not read file size")
 	}
 	s.tr.fileSize = binary.BigEndian.Uint64(t8)
-	t4 := make([]byte, 4)
+	t4 := t8[:4]
 	count, e = s.connection.Read(t4)
 	if e != nil {
 		return e
@@ -291,10 +291,7 @@ func (s *Session) openTransfer(remote_filename, local_filename string) error {
 	if s.tr.blockCount < s.tr.onWireEstimate {
 		s.tr.onWireEstimate = s.tr.blockCount
 	}
-
-	if s.param.transcript {
-		//xscript_open(session);
-	}
+	s.XsriptOpen()
 
 	return nil
 }
@@ -328,18 +325,6 @@ func (s *Session) openPort() error {
 }
 
 /*------------------------------------------------------------------------
- * int got_block(session_t* session, u_int32_t blocknr)
- *
- * Returns non-0 if the block has already been received
- *------------------------------------------------------------------------*/
-func (s *Session) gotBlock(blocknr uint32) int {
-	if blocknr > s.tr.blockCount {
-		return 1
-	}
-	return int(s.tr.received[blocknr/8] & (1 << (blocknr % 8)))
-}
-
-/*------------------------------------------------------------------------
  * int repeat_retransmit(session_t *session);
  *
  * Tries to repeat all of the outstanding retransmit requests for the
@@ -356,18 +341,16 @@ func (s *Session) repeatRetransmit() error {
 	var entry uint32
 	var block uint32
 	transmit := &s.tr.retransmit
+	// fmt.Fprintln(os.Stderr, "ttp_repeat_retransmit: index_max=", transmit.indexMax)
+
 	/* discard received blocks from the list and prepare retransmit requests */
 	for entry = 0; (entry < transmit.indexMax) && (count < MAX_RETRANSMISSION_BUFFER); entry++ {
-
 		/* get the block number */
 		block = transmit.table[entry]
-
 		/* if we want the block */
 		if block != 0 && s.gotBlock(block) == 0 {
-
 			/* save it */
 			transmit.table[count] = block
-
 			/* insert retransmit request */
 			retransmission[count].RequestType = tsunami.REQUEST_RETRANSMIT
 			retransmission[count].Block = block
@@ -387,13 +370,13 @@ func (s *Session) repeatRetransmit() error {
 
 		_, err := s.connection.Write(tsunami.Retransmissions(retransmission[:1]).Bytes())
 		if err != nil {
+			fmt.Fprintln(os.Stderr, "Could not send restart-at request")
 			return err
 		}
 
 		/* remember the request so we can then ignore blocks that are still on the wire */
 		s.tr.restartPending = true
 		s.tr.restartLastIndex = transmit.table[transmit.indexMax-1]
-
 		s.tr.restartWireClearIndex = s.tr.blockCount
 		if s.tr.blockCount > s.tr.restartLastIndex+s.tr.onWireEstimate {
 			s.tr.restartWireClearIndex = s.tr.restartLastIndex + s.tr.onWireEstimate
@@ -418,12 +401,14 @@ func (s *Session) repeatRetransmit() error {
 		if count > 0 {
 			_, err := s.connection.Write(tsunami.Retransmissions(retransmission[:count]).Bytes())
 			if err != nil {
+				fmt.Fprintln(os.Stderr, "Could not send retransmit requests")
 				return err
 			}
 		}
 
-	} //if(num entries)
+	}
 
+	fmt.Fprintln(os.Stderr, "ttp_repeat_retransmit: post-index_max=", transmit.indexMax)
 	return nil
 }
 
@@ -457,16 +442,27 @@ func (s *Session) requestRetransmit(block uint32) error {
 		copy(tableLarge, rexmit.table)
 		rexmit.table = tableLarge
 		rexmit.tableSize *= 2
+		// fmt.Fprintf(os.Stderr, "ttp_request_retransmit: new table size is %v entries\n", rexmit.tableSize)
 	}
 
-	/*
-	 * Store the request via "insertion sort"
-	 * this maintains a sequentially sorted table and discards duplicate requests,
-	 * and does not flood the net with so many unnecessary retransmissions like old Tsunami did
-	 * -- however, this can be very slow on high loss transfers! with slow CPU this causes
-	 *    even more loss : consider well if you want to enable the feature or not
-	 */
+	//ifndef sort
+	/* store the request */
+	rexmit.table[rexmit.indexMax] = block
+	rexmit.indexMax++
+	//else
+	// s.RETX_REQBLOCK_SORTING(rexmit, block)
+	//endif
+	return nil
+}
 
+/*
+ * Store the request via "insertion sort"
+ * this maintains a sequentially sorted table and discards duplicate requests,
+ * and does not flood the net with so many unnecessary retransmissions like old Tsunami did
+ * -- however, this can be very slow on high loss transfers! with slow CPU this causes
+ *    even more loss : consider well if you want to enable the feature or not
+ */
+func (s *Session) RETX_REQBLOCK_SORTING(rexmit *retransmit, block uint32) {
 	/* seek to insertion point or end - could use binary search here... */
 	var idx uint32
 	for (idx < rexmit.indexMax) && (rexmit.table[idx] < block) {
@@ -498,8 +494,6 @@ func (s *Session) requestRetransmit(block uint32) error {
 		rexmit.indexMax++
 	}
 
-	/* we succeeded */
-	return nil
 }
 
 /*------------------------------------------------------------------------
