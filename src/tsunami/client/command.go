@@ -197,7 +197,7 @@ func CommandHelp(args []string) {
 
 		/* handle the QUIT command */
 	} else if args[0] == "quit" {
-		fmt.Println("Usage: quit\n")
+		fmt.Println("Usage: quit")
 		fmt.Println("Closes any open connection to a remote Tsunami server and exits the")
 		fmt.Println("Tsunami client.\n")
 
@@ -205,7 +205,7 @@ func CommandHelp(args []string) {
 	} else if args[0] == "set" {
 		fmt.Println("Usage: set")
 		fmt.Println("       set <field>")
-		fmt.Println("       set <field> <value>\n")
+		fmt.Println("       set <field> <value>")
 		fmt.Println("Sets one of the defaults to the given value.  If the value is omitted,")
 		fmt.Println("the current value of the field is returned.  If the field is also")
 		fmt.Println("omitted, the current values of all defaults are returned.\n")

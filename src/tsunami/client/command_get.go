@@ -28,12 +28,19 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 		return errors.New("Not connected to a Tsunami server")
 	}
 
+	// var datagram []byte       /* the buffer (in ring) for incoming blocks       */
+	// var local_datagram []byte /* the local temp space for incoming block        */
+	// var this_block uint32     /* the block number for the block just received   */
+	// var this_type uint16      /* the block type for the block just received     */
+	// var delta uint64          /* generic holder of elapsed times                */
+	// var block uint32          /* generic holder of a block number               */
+
 	xfer := &transfer{}
 	session.tr = xfer
 
-	rexmit := &(xfer.retransmit)
+	// rexmit := &(xfer.retransmit)
 
-	var f_total uint64 = 1
+	var f_total int = 1
 	// var f_arrsize uint64 = 0
 	multimode := false
 
@@ -42,57 +49,14 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 
 	if remotePath == "*" {
 		multimode = true
-		fmt.Println("Requesting all available files")
-		/* Send request and try to calculate the RTT from client to server */
-		t1 := time.Now()
-		_, err := session.connection.Write([]byte("*\n"))
+		file_names, err := session.multiFileRequest()
 		if err != nil {
 			return err
 		}
-		filearray_size := make([]byte, 10)
-		_, err = session.connection.Read(filearray_size)
-		if err != nil {
-			return err
-		}
-		t2 := time.Now()
-		fmt.Println("elapsed", t1, t2)
-		file_count := make([]byte, 10)
-		_, err = session.connection.Read(file_count)
-		if err != nil {
-			return err
-		}
-		_, err = session.connection.Write([]byte("got size"))
-
-		/* Calculate and convert RTT to u_sec, with +10% margin */
-		// d := t2.Sub(t1).Nanoseconds()
-		// wait_u_sec = (d + d/10) / 1000
-
-		// f_arrsize, _ = strconv.ParseUint(string(filearray_size), 10, 64)
-		f_total, _ = strconv.ParseUint(string(file_count), 10, 64)
-		if f_total <= 0 {
-			/* get the \x008 failure signal */
-			dummy := make([]byte, 1)
-			session.connection.Read(dummy)
-			return errors.New("Server advertised no files to get")
-		}
-		fmt.Printf("\nServer is sharing %v files\n", f_total)
-
-		/* Read the file list */
-		file_names = make([]string, f_total)
-
-		fmt.Printf("Multi-GET of %v files:\n", f_total)
-		for i := 0; i < int(f_total); i++ {
-			tmpname, err := tsunami.ReadLine(session.connection, 1024)
-			if err != nil {
-				return err
-			}
-			file_names[i] = tmpname
-			fmt.Print(tmpname)
-		}
-		session.connection.Write([]byte("got list"))
-		fmt.Println("")
+		f_total = len(file_names)
 	}
 
+	/*---loop for single and multi file request---*/
 	for i := 0; i < int(f_total); i++ {
 		if multimode {
 			xfer.remoteFileName = file_names[i]
@@ -108,31 +72,109 @@ func CommandGet(remotePath string, localPath string, session *Session) error {
 				xfer.localFileName = path.Base(remotePath)
 			}
 		}
-		/* negotiate the file request with the server */
-		if err := session.openTransfer(xfer.remoteFileName, xfer.localFileName); err != nil {
-			return errors.New(fmt.Sprint("File transfer request failed", err))
+		err := session.getSingleFile()
+		if err != nil {
+			break
 		}
-		if err := session.openPort(); err != nil {
-			return err
-		}
-
-		rexmit.table = make([]uint32, DEFAULT_TABLE_SIZE)
-		xfer.received = make([]byte, xfer.blockCount/8+2)
-
-		xfer.ringBuffer = session.NewRingBuffer()
-
-		// local_datagram := make([]byte, 6+session.param.blockSize)
-
-		/* Finish initializing the retransmission object */
-		rexmit.tableSize = DEFAULT_TABLE_SIZE
-		rexmit.indexMax = 0
-
-		/* we start by expecting block #1 */
-		xfer.nextBlock = 1
-		xfer.gaplessToBlock = 0
-
 	}
 
+	return nil
+}
+
+func (session *Session) multiFileRequest() ([]string, error) {
+	fmt.Println("Requesting all available files")
+	/* Send request and try to calculate the RTT from client to server */
+	t1 := time.Now()
+	_, err := session.connection.Write([]byte("*\n"))
+	if err != nil {
+		return nil, err
+	}
+	b10 := make([]byte, 10)
+	l, err := session.connection.Read(b10)
+	if err != nil {
+		return nil, err
+	}
+	// filearray_size := string(b10[:l])
+	t2 := time.Now()
+	fmt.Println("elapsed", t1, t2)
+	l, err = session.connection.Read(b10)
+	if err != nil {
+		return nil, err
+	}
+	file_count := string(b10[:l])
+	_, err = session.connection.Write([]byte("got size"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Could not request file")
+		return nil, err
+	}
+
+	/* See if the request was successful */
+	if l < 1 {
+		err = errors.New("Could not read response to file request")
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
+	/* Calculate and convert RTT to u_sec, with +10% margin */
+	// d := t2.Sub(t1).Nanoseconds()
+	// wait_u_sec := (d + d/10) / 1000
+
+	// f_arrsize, _ := strconv.ParseUint(filearray_size, 10, 64)
+	f_total, _ := strconv.ParseUint(file_count, 10, 64)
+	if f_total <= 0 {
+		/* get the \x008 failure signal */
+		dummy := make([]byte, 1)
+		session.connection.Read(dummy)
+		err = errors.New("Server advertised no files to get")
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	fmt.Printf("\nServer is sharing %v files\n", f_total)
+
+	/* Read the file list */
+	file_names := make([]string, f_total)
+
+	fmt.Printf("Multi-GET of %v files:\n", f_total)
+	for i := 0; i < int(f_total); i++ {
+		tmpname, err := tsunami.ReadLine(session.connection, 1024)
+		if err != nil {
+			return nil, err
+		}
+		file_names[i] = tmpname
+		fmt.Print(tmpname)
+	}
+	session.connection.Write([]byte("got list"))
+	fmt.Println("")
+	return file_names, nil
+}
+
+func (session *Session) getSingleFile() error {
+	xfer := session.tr
+	rexmit := &(xfer.retransmit)
+	/* negotiate the file request with the server */
+	if err := session.openTransfer(xfer.remoteFileName, xfer.localFileName); err != nil {
+		fmt.Fprintln(os.Stderr, "File transfer request failed", err)
+		return err
+	}
+	if err := session.openPort(); err != nil {
+		fmt.Fprintln(os.Stderr, "Creation of data socket failed")
+		return err
+	}
+
+	rexmit.table = make([]uint32, DEFAULT_TABLE_SIZE)
+	xfer.received = make([]byte, xfer.blockCount/8+2)
+
+	xfer.ringBuffer = session.NewRingBuffer()
+
+	// local_datagram := make([]byte, 6+session.param.blockSize)
+
+	/* Finish initializing the retransmission object */
+	rexmit.tableSize = DEFAULT_TABLE_SIZE
+	rexmit.indexMax = 0
+
+	/* we start by expecting block #1 */
+	xfer.nextBlock = 1
+	xfer.gaplessToBlock = 0
 	return nil
 }
 
