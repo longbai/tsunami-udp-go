@@ -63,7 +63,7 @@ func run(args []string, parameter *client.Parameter, session **client.Session) e
 
 func main() {
 	fmt.Fprintf(os.Stderr,
-		"Tsunami Client for protocol rev %s\nRevision: %s\nCompiled: %s\n",
+		"Tsunami Client for protocol rev %d\nRevision: %s\nCompiled: %s\n",
 		tsunami.PROTOCOL_REVISION, tsunami.TSUNAMI_CVS_BUILDNR, buildTime)
 	parameter := client.NewParameter()
 	var session *client.Session
