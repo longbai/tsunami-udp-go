@@ -22,16 +22,21 @@ var (
 
 func handler(session *Session, param *Parameter, conn *net.TCPConn) {
 	defer conn.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+		}
+	}()
 
 	err := session.Negotiate()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Protocol revision number mismatch", err)
+		Warn("Protocol revision number mismatch", err)
 		return
 	}
 
 	err = session.Authenticate()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Client authentication failure", err)
+		Warn("Client authentication failure", err)
 		return
 	}
 
@@ -39,13 +44,13 @@ func handler(session *Session, param *Parameter, conn *net.TCPConn) {
 
 	for {
 		err = session.OpenTransfer()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Invalid file request", err)
+		if err != nil && err != FileListSent {
+			Warn("Invalid file request")
 			continue
 		}
 		err = session.OpenPort()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "UDP socket creation failed", err)
+			Warn("UDP socket creation failed", err)
 			continue
 		}
 		session.Transfer()
@@ -74,7 +79,7 @@ func main() {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Could not accept client connection", err)
+			Warn("Could not accept client connection", err)
 			continue
 		}
 		c, _ := conn.(*net.TCPConn)

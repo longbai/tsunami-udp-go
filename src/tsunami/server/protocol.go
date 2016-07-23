@@ -12,8 +12,10 @@ import (
 	"strconv"
 	"time"
 
-	"tsunami"
+	. "tsunami"
 )
+
+var FileListSent error = errors.New("file list sent")
 
 /* state of a transfer */
 type Transfer struct {
@@ -81,14 +83,14 @@ func (t *Transfer) close() {
  * Returns 0 on success and non-zero on failure.
  *------------------------------------------------------------------------*/
 
-func (session *Session) AcceptRetransmit(retransmission tsunami.Retransmission, datagram []byte) error {
+func (session *Session) AcceptRetransmit(retransmission Retransmission, datagram []byte) error {
 	xfer := session.transfer
 	param := session.parameter
 
 	request_type := retransmission.RequestType
 
 	/* if it's an error rate notification */
-	if request_type == tsunami.REQUEST_ERROR_RATE {
+	if request_type == REQUEST_ERROR_RATE {
 
 		/* calculate a new IPD */
 		if retransmission.ErrorRate > param.error_rate {
@@ -121,33 +123,33 @@ func (session *Session) AcceptRetransmit(retransmission tsunami.Retransmission, 
 
 		session.XsriptDataLog(s)
 
-	} else if request_type == tsunami.REQUEST_RESTART {
+	} else if request_type == REQUEST_RESTART {
 
 		/* do range-checking first */
 		if (retransmission.Block == 0) || (retransmission.Block > param.block_count) {
-			return errors.New(fmt.Sprint("Attempt to restart at illegal block ", retransmission.Block))
+			return Warn("Attempt to restart at illegal block ", retransmission.Block)
 		} else {
 			xfer.block = retransmission.Block
 		}
 
 		/* if it's a retransmit request */
-	} else if request_type == tsunami.REQUEST_RETRANSMIT {
+	} else if request_type == REQUEST_RETRANSMIT {
 
 		/* build the retransmission */
-		err := session.buildDatagram(retransmission.Block, tsunami.TS_BLOCK_RETRANSMISSION, datagram)
+		err := session.buildDatagram(retransmission.Block, TS_BLOCK_RETRANSMISSION, datagram)
 		if err != nil {
-			return err
+			return Warn("buildDatagram failed", err)
 		}
 
 		/* try to send out the block */
 		_, err = xfer.udp_fd.WriteToUDP(datagram[:6+param.block_size], xfer.udp_address)
 		if err != nil {
-			return errors.New(fmt.Sprint("Could not retransmit block ", retransmission.Block, err))
+			return Warn("Could not retransmit block ", retransmission.Block, err)
 		}
 
 		/* if it's another kind of request */
 	} else {
-		return errors.New(fmt.Sprint("Received unknown retransmission request of type ", retransmission.RequestType))
+		return Warn("Received unknown retransmission request of type ", retransmission.RequestType)
 	}
 
 	return nil
@@ -185,27 +187,27 @@ func (session *Session) Authenticate() error {
 
 	_, err = session.client_fd.Write(random)
 	if err != nil {
-		return errors.New(fmt.Sprint("Could not send authentication challenge to client", err))
+		return Warn("Could not send authentication challenge to client", err)
 	}
 
 	client_digest := make([]byte, 16)
 	_, err = session.client_fd.Read(client_digest)
 	if err != nil {
-		return errors.New(fmt.Sprint("Could not read authentication response from client", err))
+		return Warn("Could not read authentication response from client", err)
 	}
 
-	server_digest := tsunami.PrepareProof(random, []byte(secret))
+	server_digest := PrepareProof(random, []byte(secret))
 	for i := 0; i < len(server_digest); i++ {
 		if client_digest[i] != server_digest[i] {
 			session.client_fd.Write([]byte{1})
-			return errors.New("Authentication failed")
+			return Warn("Authentication failed")
 		}
 	}
 
 	/* try to tell the client it worked */
 	_, err = session.client_fd.Write([]byte{0})
 	if err != nil {
-		return errors.New(fmt.Sprint("Could not send authentication confirmation to client", err))
+		return Warn("Could not send authentication confirmation to client", err)
 	}
 
 	return nil
@@ -223,7 +225,7 @@ func (session *Session) Authenticate() error {
  *------------------------------------------------------------------------*/
 func (session *Session) Negotiate() error {
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, tsunami.PROTOCOL_REVISION)
+	binary.BigEndian.PutUint32(buf, PROTOCOL_REVISION)
 
 	count, e := session.client_fd.Write(buf)
 	if e != nil {
@@ -231,7 +233,7 @@ func (session *Session) Negotiate() error {
 	}
 
 	if count < 4 {
-		return errors.New("Could not send protocol revision number")
+		return Warn("Could not send protocol revision number")
 	}
 
 	count, e = session.client_fd.Read(buf)
@@ -239,12 +241,12 @@ func (session *Session) Negotiate() error {
 		return e
 	}
 	if count < 4 {
-		return errors.New("Could not read protocol revision number")
+		return Warn("Could not read protocol revision number")
 	}
 
 	x := binary.BigEndian.Uint32(buf)
-	if x != tsunami.PROTOCOL_REVISION {
-		return errors.New("Protocol negotiation failed")
+	if x != PROTOCOL_REVISION {
+		return Warn("Protocol negotiation failed")
 	}
 	return nil
 }
@@ -291,20 +293,19 @@ func (session *Session) OpenPort() error {
 	udp_address.Port = int(x)
 
 	if session.parameter.verbose {
-		fmt.Fprintln(os.Stderr, "Sending to client port", x)
+		Warn("Sending to client port ", x)
 	}
 
 	fd, err := createUdpSocket(session.parameter, &udp_address)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not create UDP socket", err)
-		return err
+		return Warn("Could not create UDP socket", err)
 	}
 	session.transfer.udp_fd = fd
 	session.transfer.udp_address = &udp_address
 	return nil
 }
 
-func (session *Session) listFiles() error {
+func (session *Session) dir() error {
 	/* The client requested listing of files and their sizes (dir command)
 	 * Send strings:   NNN \0   name1 \0 len1 \0     nameN \0 lenN \0
 	 */
@@ -325,11 +326,10 @@ func (session *Session) listFiles() error {
 	b := make([]byte, 1)
 	_, err := session.client_fd.Read(b)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read client list ack failed")
-		return err
+		return Warn("read client list ack failed", err)
 	}
-	fmt.Fprintln(os.Stderr, "file list sent")
-	return nil
+	Warn("file list sent")
+	return FileListSent
 }
 
 /* execute the provided program on server side to see what files
@@ -337,7 +337,7 @@ func (session *Session) listFiles() error {
  */
 func (session *Session) executeHook() (string, error) {
 	param := session.parameter
-	fmt.Fprintln(os.Stderr, "Using allhook program:", param.allhook)
+	fmt.Fprintln(os.Stderr, "Using allhook program: ", param.allhook)
 	cmd := exec.Command(param.allhook)
 	data, err := cmd.Output()
 	if len(data) > 32768 {
@@ -366,34 +366,31 @@ func (session *Session) executeHook() (string, error) {
 	session.client_fd.Write(b)
 
 	buf.Reset()
-	tsunami.BZero(b)
+	BZero(b)
 	buf.WriteString(strconv.FormatInt(count, 10))
 	session.client_fd.Write(b)
 
 	buf.Reset()
-	tsunami.BZero(b)
+	BZero(b)
 	message := b[:8]
 	_, err = session.client_fd.Read(message)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read hook response failed", err)
-		return "", err
+		return "", Warn("read hook response failed", err)
 	}
 
 	fmt.Println("Client response:", string(message))
 
-	tsunami.BZero(b)
+	BZero(b)
 	if count > 0 {
 		session.client_fd.Write(data)
 		_, err = session.client_fd.Read(message)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "read hook filelist response failed", err)
-			return "", err
+			return "", Warn("read hook filelist response failed", err)
 		}
 		fmt.Println("Sent file list, client response:", string(message))
-		s, err := tsunami.ReadLine(session.client_fd, tsunami.MAX_FILENAME_LENGTH)
+		s, err := ReadLine(session.client_fd, MAX_FILENAME_LENGTH)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Could not read filename from client", err)
-			return "", err
+			return "", Warn("Could not read filename from client", err)
 		}
 		return s, nil
 	}
@@ -411,12 +408,12 @@ func (session *Session) sendMultipleFileNames() (string, error) {
 	buf.WriteString(strconv.FormatInt(int64(param.file_name_size), 10))
 	session.client_fd.Write(b)
 	buf.Reset()
-	tsunami.BZero(b)
+	BZero(b)
 
 	buf.WriteString(strconv.FormatInt(int64(param.total_files), 10))
 	session.client_fd.Write(b)
 	buf.Reset()
-	tsunami.BZero(b)
+	BZero(b)
 
 	fmt.Println("\nSent multi-GET filename count and array size to client")
 	readBuff := make([]byte, 8)
@@ -435,7 +432,7 @@ func (session *Session) sendMultipleFileNames() (string, error) {
 	}
 	session.client_fd.Write(buf2.Bytes())
 
-	tsunami.BZero(readBuff)
+	BZero(readBuff)
 	n, err = session.client_fd.Read(readBuff)
 	if err != nil {
 		return "", err
@@ -443,10 +440,9 @@ func (session *Session) sendMultipleFileNames() (string, error) {
 
 	fmt.Println("Sent file list, client response:", string(readBuff[:n]))
 
-	fname, err := tsunami.ReadLine(session.client_fd, tsunami.MAX_FILENAME_LENGTH)
+	fname, err := ReadLine(session.client_fd, MAX_FILENAME_LENGTH)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not read filename from client")
-		return "", err
+		return "", ErrorAndPanic("Could not read filename from client", err)
 	}
 	return fname, nil
 }
@@ -470,14 +466,14 @@ func (session *Session) OpenTransfer() error {
 	session.transfer = &Transfer{}
 
 	/* read in the requested filename */
-	filename, err := tsunami.ReadLine(session.client_fd, tsunami.MAX_FILENAME_LENGTH)
+	filename, err := ReadLine(session.client_fd, MAX_FILENAME_LENGTH)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not read filename from client")
+		ErrorAndPanic("Could not read filename from client", err)
 		return err
 	}
 
-	if filename == tsunami.TS_DIRLIST_HACK_CMD {
-		return session.listFiles()
+	if filename == TS_DIRLIST_HACK_CMD {
+		return session.dir()
 	}
 	param := session.parameter
 	if filename == "*" {
@@ -498,10 +494,10 @@ func (session *Session) OpenTransfer() error {
 
 	f, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "File", filename, "does not exist or cannot be read", err)
+		Warn("File", filename, "does not exist or cannot be read", err)
 		_, err2 := session.client_fd.Write([]byte{8})
 		if err2 != nil {
-			fmt.Fprintln(os.Stderr, "Could not signal request failure to client")
+			Warn("Could not signal request failure to client")
 		}
 		return err
 	}
@@ -514,30 +510,26 @@ func (session *Session) OpenTransfer() error {
 	/* try to signal success to the client */
 	_, err = session.client_fd.Write([]byte{0})
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not signal request approval to client", err)
-		return err
+		return Warn("Could not signal request approval to client", err)
 	}
 
 	fourBytes := make([]byte, 4)
 	/* read in the block size, target bitrate, and error rate */
 	_, err = session.client_fd.Read(fourBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read block size", err)
-		return err
+		return Warn("Could not read block size", err)
 	}
 	param.block_size = binary.BigEndian.Uint32(fourBytes)
 
 	_, err = session.client_fd.Read(fourBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read target bitrate", err)
-		return err
+		return Warn("Could not read target bitrate", err)
 	}
 	param.target_rate = binary.BigEndian.Uint32(fourBytes)
 
 	_, err = session.client_fd.Read(fourBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read error rate", err)
-		return err
+		return Warn("Could not read error rate", err)
 	}
 	param.error_rate = binary.BigEndian.Uint32(fourBytes)
 
@@ -548,29 +540,25 @@ func (session *Session) OpenTransfer() error {
 	twoBytes := fourBytes[:2]
 	_, err = session.client_fd.Read(twoBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read slowdown numerator", err)
-		return err
+		return Warn("Could not read slowdown numerator", err)
 	}
 	param.slower_num = binary.BigEndian.Uint16(twoBytes)
 
 	_, err = session.client_fd.Read(twoBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read slowdown denominator", err)
-		return err
+		return Warn("Could not read slowdown denominator", err)
 	}
 	param.slower_den = binary.BigEndian.Uint16(twoBytes)
 
 	_, err = session.client_fd.Read(twoBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read speedup numerator", err)
-		return err
+		return Warn("Could not read speedup numerator", err)
 	}
 	param.faster_num = binary.BigEndian.Uint16(twoBytes)
 
 	_, err = session.client_fd.Read(twoBytes)
 	if err != nil {
-		fmt.Sprintln(os.Stderr, "Could not read speedup denominator", err)
-		return err
+		return Warn("Could not read speedup denominator", err)
 	}
 	param.faster_den = binary.BigEndian.Uint16(twoBytes)
 
@@ -589,22 +577,19 @@ func (session *Session) OpenTransfer() error {
 	binary.BigEndian.PutUint64(eightBytes, param.file_size)
 	_, err = session.client_fd.Write(eightBytes)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not submit file size", err)
-		return err
+		return Warn("Could not submit file size", err)
 	}
 
 	binary.BigEndian.PutUint32(fourBytes, param.block_size)
 	_, err = session.client_fd.Write(fourBytes)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not submit block size", err)
-		return err
+		return Warn("Could not submit block size", err)
 	}
 
 	binary.BigEndian.PutUint32(fourBytes, param.block_count)
 	_, err = session.client_fd.Write(fourBytes)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not submit block count", err)
-		return err
+		return Warn("Could not submit block count", err)
 	}
 
 	epoch := param.epoch.Unix()
@@ -612,8 +597,7 @@ func (session *Session) OpenTransfer() error {
 	binary.BigEndian.PutUint32(fourBytes, uint32(epoch))
 	_, err = session.client_fd.Write(fourBytes)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Could not submit run epoch", err)
-		return err
+		return Warn("Could not submit run epoch", err)
 	}
 
 	/*calculate and convert RTT to u_sec*/
@@ -631,7 +615,7 @@ func (session *Session) OpenTransfer() error {
 }
 
 func (session *Session) Transfer() {
-	datagram := make([]byte, tsunami.MAX_BLOCK_SIZE+6)
+	datagram := make([]byte, MAX_BLOCK_SIZE+6)
 	start := time.Now()
 	session.XsriptDataStart(start)
 
@@ -647,11 +631,11 @@ func (session *Session) Transfer() {
 	param := session.parameter
 	/* start by blasting out every block */
 	xfer.block = 0
-	retransmission_byte := make([]byte, tsunami.SIZE_OF_RETRANSMISSION_T)
-	var retransmission *tsunami.Retransmission
+	retransmission_byte := make([]byte, SIZE_OF_RETRANSMISSION_T)
+	var retransmission *Retransmission
 	for xfer.block <= param.block_count {
 		/* default: flag as retransmitted block */
-		block_type := tsunami.TS_BLOCK_RETRANSMISSION
+		block_type := TS_BLOCK_RETRANSMISSION
 		/* precalculate time to wait after sending the next packet */
 		currpacketT := time.Now()
 		//? old -new time
@@ -668,19 +652,19 @@ func (session *Session) Transfer() {
 		/* see if transmit requests are available */
 		read, err := session.client_fd.Read(retransmission_byte[retransmitlen:])
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Retransmission read failed", err)
+			ErrorAndPanic("Retransmission read failed", err)
 			return
 		}
 		retransmitlen += read
 
 		/* if we have a retransmission */
-		if retransmitlen == tsunami.SIZE_OF_RETRANSMISSION_T {
+		if retransmitlen == SIZE_OF_RETRANSMISSION_T {
 			/* store current time */
 			lastfeedback = currpacketT
 			lasthblostreport = currpacketT
 			deadconnection_counter = 0
-			retransmission = tsunami.NewRetransmission(retransmission_byte)
-			if retransmission.RequestType == tsunami.REQUEST_STOP {
+			retransmission = NewRetransmission(retransmission_byte)
+			if retransmission.RequestType == REQUEST_STOP {
 				fmt.Fprintf(os.Stderr, "Transmission of %s complete.\n", xfer.filename)
 				param.FinishHook(xfer.filename)
 				break
@@ -692,30 +676,30 @@ func (session *Session) Transfer() {
 			}
 			retransmitlen = 0
 			/* if we have no retransmission */
-		} else if retransmitlen < tsunami.SIZE_OF_RETRANSMISSION_T {
+		} else if retransmitlen < SIZE_OF_RETRANSMISSION_T {
 			/* build the block */
 			xfer.block = xfer.block + 1
 			if xfer.block > param.block_count {
 				xfer.block = param.block_count
 			}
 			if xfer.block == param.block_count {
-				block_type = tsunami.TS_BLOCK_TERMINATE
+				block_type = TS_BLOCK_TERMINATE
 			} else {
-				block_type = tsunami.TS_BLOCK_ORIGINAL
+				block_type = TS_BLOCK_ORIGINAL
 			}
 			err = session.buildDatagram(xfer.block, uint16(block_type), datagram)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "Could not read block", xfer.block, err)
+				ErrorAndPanic("Could not read block", xfer.block, err)
 				return
 			}
 			_, err = xfer.udp_fd.WriteTo(datagram[:6+param.block_size], xfer.udp_address)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "Could not transmit block", xfer.block, err)
+				Warn("Could not transmit block", xfer.block, err)
 				continue
 			}
 			/* if we have too long retransmission message */
-		} else if retransmitlen > tsunami.SIZE_OF_RETRANSMISSION_T {
-			fmt.Fprintln(os.Stderr, "warn: retransmitlen >", tsunami.SIZE_OF_RETRANSMISSION_T)
+		} else if retransmitlen > SIZE_OF_RETRANSMISSION_T {
+			Warn("retransmitlen >", SIZE_OF_RETRANSMISSION_T)
 			retransmitlen = 0
 		}
 		/* monitor client heartbeat and disconnect dead client */
@@ -729,7 +713,7 @@ func (session *Session) Transfer() {
 			lasthblostreport = time.Now()
 
 			/* throttle IPD with fake 100% loss report */
-			retransmission = &tsunami.Retransmission{tsunami.REQUEST_ERROR_RATE, 0, 100000}
+			retransmission = &Retransmission{REQUEST_ERROR_RATE, 0, 100000}
 
 			session.AcceptRetransmit(*retransmission, datagram)
 
@@ -756,7 +740,7 @@ func (session *Session) Transfer() {
 		}
 
 		/* wait before handling the next packet */
-		if block_type == tsunami.TS_BLOCK_TERMINATE {
+		if block_type == TS_BLOCK_TERMINATE {
 			time.Sleep(time.Duration(10 * ipd_time_max * 1000))
 		}
 		if ipd_time > 0 {

@@ -2,9 +2,9 @@ package server
 
 import (
 	"encoding/binary"
-	"errors"
-	"fmt"
 	"os"
+
+	"tsunami"
 )
 
 /*------------------------------------------------------------------------
@@ -42,7 +42,7 @@ func (session *Session) buildDatagram(block_index uint32,
 	/* try to read in the block */
 	_, err := session.transfer.file.Read(datagram[6:])
 	if err != nil {
-		return errors.New(fmt.Sprint("Could not read block #", block_index, err))
+		return tsunami.Warn("Could not read block #", block_index, err)
 	}
 
 	/* build the datagram header */

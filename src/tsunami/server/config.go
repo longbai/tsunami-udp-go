@@ -80,11 +80,13 @@ func NewParameter() *Parameter {
  * as appropriate.
  *------------------------------------------------------------------------*/
 func ProcessOptions() *Parameter {
-	verbose := opt.BoolLong("verbose", 'v',
+	parameter := NewParameter()
+
+	opt.BoolVarLong(&parameter.verbose, "verbose", 'v',
 		"turns on verbose output mode, deafult off")
-	transcript := opt.BoolLong("transcript", 't',
+	opt.BoolVarLong(&parameter.transcript, "transcript", 't',
 		"turns on transcript mode for statistics recording, deafult off")
-	ipv6 := opt.BoolLong("v6", '6',
+	opt.BoolVarLong(&parameter.ipv6, "v6", '6',
 		"operates using IPv6 instead of (not in addition to!) IPv4")
 	deafultHelp := fmt.Sprintf(
 		"specifies which TCP port on which to listen to incoming connections, default %d",
@@ -102,30 +104,23 @@ func ProcessOptions() *Parameter {
 		"specifies the timeout in seconds for disconnect after client heartbeat lost, default %d",
 		DEFAULT_HEARTBEAT_TIMEOUT)
 	hbtimeout := opt.Uint16Long("hbtimeout", 'h', DEFAULT_HEARTBEAT_TIMEOUT, deafultHelp)
-	client := opt.StringLong("client", 'c',
+	opt.StringVarLong(&parameter.client, "client", 'c',
 		"specifies an alternate client IP or host where to send data")
-	finishhook := opt.StringLong("finishhook", 'f',
+	opt.StringVarLong(&parameter.finishhook, "finishhook", 'f',
 		"run command on transfer completion, file name is appended automatically")
-	allhook := opt.StringLong("allhook", 'a',
+	opt.StringVarLong(&parameter.allhook, "allhook", 'a',
 		"run command on 'get *' to produce a custom file list for client downloads")
 	opt.Parse()
 
-	parameter := NewParameter()
-
-	parameter.verbose = *verbose
-	parameter.transcript = *transcript
-	parameter.ipv6 = *ipv6
 	parameter.tcp_port = *port
 	parameter.secret = *secret
 	parameter.udp_buffer = *buffer
 	parameter.hb_timeout = *hbtimeout
-	parameter.client = *client
-	parameter.finishhook = *finishhook
-	parameter.allhook = *allhook
 
 	files := opt.Args()
 	parameter.file_names = files
 	parameter.file_sizes = make([]uint64, len(files))
+	parameter.total_files = uint16(len(files))
 	for i, v := range files {
 		stat, err := os.Stat(v)
 		if err != nil {

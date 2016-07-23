@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -184,4 +185,26 @@ func BZero(b []byte) {
 	for i := range b {
 		b[i] = 0
 	}
+}
+
+func Warn(a ...interface{}) error {
+	return errorHandler(false, a...)
+}
+
+func ErrorAndPanic(a ...interface{}) error {
+	return errorHandler(true, a...)
+}
+
+func errorHandler(exit bool, a ...interface{}) error {
+	s := "Warning"
+	if exit {
+		s = "Error"
+	}
+	str := fmt.Sprint(a...)
+	err := errors.New(str)
+	fmt.Fprintln(os.Stderr, s, str)
+	if exit {
+		panic(err)
+	}
+	return err
 }
