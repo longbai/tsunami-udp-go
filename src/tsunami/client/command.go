@@ -3,11 +3,9 @@ package client
 import (
 	"errors"
 	"fmt"
-	// "net"
 	"os"
-	// "path"
 	"strconv"
-	// "time"
+	"strings"
 
 	"tsunami"
 )
@@ -250,8 +248,8 @@ func CommandSet(parameter *Parameter, args []string) error {
 		showAllParam(parameter)
 	}
 	if len(args) == 2 {
-		key := args[0]
-		value := args[1]
+		key := strings.ToLower(args[0])
+		value := strings.ToLower(args[1])
 		switch key {
 		case "server":
 			fmt.Println(key, value)

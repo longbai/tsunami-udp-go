@@ -23,7 +23,7 @@ var (
 )
 
 func run(args []string, parameter *client.Parameter, session **client.Session) error {
-	cmd := args[0]
+	cmd := strings.ToLower(args[0])
 	switch cmd {
 	case "close":
 		return client.CommandClose(*session)
@@ -56,7 +56,7 @@ func run(args []string, parameter *client.Parameter, session **client.Session) e
 		return client.CommandSet(parameter, setArgs)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unrecognized command: '%v'.  Use 'HELP' for help.\n\n", cmd)
+		fmt.Fprintf(os.Stderr, "Unrecognized command: '%v'.  Use 'help' for help.\n\n", cmd)
 	}
 	return nil
 }
